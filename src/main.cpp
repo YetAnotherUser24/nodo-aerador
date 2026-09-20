@@ -15,6 +15,7 @@
 #include "control_engine.h"
 #include "esp_now_rx.h"
 #include "cloud_worker.h"
+#include "odrive_sd_logger.h"
 
 #if defined(ODRIVE_VIRTUAL) && ODRIVE_VIRTUAL
 #include "odrive_virtual.h"
@@ -33,8 +34,9 @@ static ODriveUART odrive(ODriveSerial, ODRIVE_SERIAL_RX_PIN, ODRIVE_SERIAL_TX_PI
 static ControlEngine controlEngine;
 
 static unsigned long lastLoopMs = 0;
-static unsigned long lastTelemMs = 0;
 static unsigned long lastLogMs = 0;
+static unsigned long lastSdLogMs = 0;
+static uint32_t loopTickCounter = 0;
 static ODriveTelemetry cachedODriveTelem;
 
 void setup() {
@@ -46,14 +48,15 @@ void setup() {
 #else
   Serial.println("  AquaControl: ESP32 ODrive S1 Controller Starting...  ");
 #endif
+  Serial.printf("  Board: %s\n", BOARD_NAME);
   Serial.println("=======================================================");
 
   // 1. Initialize ODrive Driver (Virtual Simulator or Hardware UART)
 #if defined(ODRIVE_VIRTUAL) && ODRIVE_VIRTUAL
   Serial.println("[Init] Initializing ODrive Virtual Driver (Simulation Mode)...");
 #else
-  Serial.printf("[Init] Connecting to ODrive S1 via UART (RX: GPIO %d, TX: GPIO %d)...\n",
-                ODRIVE_SERIAL_RX_PIN, ODRIVE_SERIAL_TX_PIN);
+  Serial.printf("[Init] Connecting to ODrive S1 via UART (RX: GPIO %d, TX: GPIO %d @ %lu baud)...\n",
+                ODRIVE_SERIAL_RX_PIN, ODRIVE_SERIAL_TX_PIN, (unsigned long)ODRIVE_BAUD_RATE);
 #endif
   odrive.begin();
 
@@ -67,11 +70,14 @@ void setup() {
   Serial.println("[Init] Virtual Mode: ESP-NOW radio disabled (focusing on Web Dashboard <-> ODrive link).");
 #endif
 
-  // 3. Start Core 0 Cloud Worker (Passes only ControlEngine, preserving UART single ownership)
+  // 3. Initialize MicroSD Card Data Logger
+  odriveSdLoggerInit();
+
+  // 4. Start Core 0 Cloud Worker (Passes only ControlEngine, preserving UART single ownership)
   Serial.println("[Init] Launching Cloud Worker on Core 0...");
   startCloudWorker(controlEngine);
 
-  // 4. Initial attempt to engage closed-loop control on ODrive S1
+  // 5. Initial attempt to engage closed-loop control on ODrive S1
   odrive.clearErrors();
   delay(100);
   odrive.enterClosedLoop();
@@ -95,11 +101,8 @@ void loop() {
   if (now - lastLoopMs >= CONTROL_LOOP_INTERVAL_MS) {
     lastLoopMs = now;
 
-    // A. Query live telemetry from ODrive S1 at 4 Hz (every 250ms) to eliminate loop jitter
-    if (now - lastTelemMs >= 250) {
-      lastTelemMs = now;
-      odrive.pollTelemetry(cachedODriveTelem);
-    }
+    // A. Query live telemetry via Tiered Polling (strictly <= 2.5 ms serial time per tick)
+    odrive.updateTieredTelemetry(cachedODriveTelem, loopTickCounter++);
 
     // B. Check Emergency Stop or compute target velocity from control algorithm
     float targetRpm = 0.0f;
@@ -132,14 +135,34 @@ void loop() {
 
     updateSharedTelemetry(sTelem);
 
-    // D. Periodic Serial Monitor status output (every 1 second)
+    // D. High-frequency MicroSD logging (10 Hz = every 100 ms)
+    if (now - lastSdLogMs >= SD_LOG_INTERVAL_MS) {
+      lastSdLogMs = now;
+      const LoggerSyncState& sync = espNowGetLoggerState();
+
+      OdriveLogSample sample;
+      sample.t_ms = now;
+      sample.logger_rtc_sec = sync.rtc_timestamp_sec;
+      sample.target_rpm = targetRpm;
+      sample.actual_rpm = cachedODriveTelem.actual_rpm;
+      sample.torque_nm = cachedODriveTelem.torque_estimate;
+      sample.ibus_a = cachedODriveTelem.ibus_current;
+      sample.vbus_v = cachedODriveTelem.vbus_voltage;
+      sample.fet_temp_c = cachedODriveTelem.fet_temperature;
+      sample.current_do_mg_l = controlEngine.getLastMeasuredDo();
+      sample.control_mode = (uint8_t)controlEngine.getConfig().mode;
+
+      odriveSdLoggerEnqueue(sample);
+    }
+
+    // E. Periodic Serial Monitor status output (every 1 second)
     if (now - lastLogMs >= 1000) {
       lastLogMs = now;
       ControlConfig cfg = controlEngine.getConfig();
       const char* modeStr = (cfg.mode == MODE_PID) ? "PID" :
                             ((cfg.mode == MODE_FUZZY) ? "FUZZY" : "MANUAL");
 
-      Serial.printf("[CTRL Core 1] Mode: %s | DO: %.2f mg/L | Target: %.0f RPM | Act: %.0f RPM | %.1fV %.2fA (%.1fW)%s%s%s%s\n",
+      Serial.printf("[CTRL Core 1] Mode: %s | DO: %.2f mg/L | Target: %.0f RPM | Act: %.0f RPM | %.1fV %.2fA (%.1fW) | Torq: %.2fNm%s%s%s%s\n",
                     modeStr,
                     controlEngine.getLastMeasuredDo(),
                     targetRpm,
@@ -147,6 +170,7 @@ void loop() {
                     cachedODriveTelem.vbus_voltage,
                     cachedODriveTelem.ibus_current,
                     cachedODriveTelem.power_watts,
+                    cachedODriveTelem.torque_estimate,
                     controlEngine.isFailsafeActive() ? " [FAILSAFE]" : "",
                     controlEngine.isEmergencyStopActive() ? " [EMERGENCY STOP]" : "",
                     (!cachedODriveTelem.is_armed) ? " [DISARMED]" : "",

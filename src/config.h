@@ -24,7 +24,11 @@
 #endif
 
 #ifndef ODRIVE_BAUD_RATE
+#if defined(BOARD_LILYGO_LORA32)
+#define ODRIVE_BAUD_RATE        460800   // High-speed low-latency UART for LilyGO HAT
+#else
 #define ODRIVE_BAUD_RATE        115200
+#endif
 #endif
 
 #ifndef ODRIVE_UART_DEBUG
@@ -50,6 +54,19 @@
 
 // New: telemetry sample interval (~3 Hz) to build batch of 9 samples per push
 #define TELEMETRY_SAMPLE_INTERVAL_MS 350UL 
+
+/* -------------------- MicroSD Card Logger ------------------------ */
+#ifndef SD_LOG_ENABLED
+#if defined(BOARD_LILYGO_LORA32) && (!defined(ODRIVE_VIRTUAL) || !ODRIVE_VIRTUAL)
+#define SD_LOG_ENABLED          1        // Enable high-speed SD logging on LilyGO hardware
+#else
+#define SD_LOG_ENABLED          0
+#endif
+#endif
+
+#define SD_LOG_INTERVAL_MS      100UL    // 10 Hz SD sampling rate on Core 1
+#define SD_LOG_QUEUE_SIZE       64       // RAM queue holding up to 6.4s of samples during flash erase
+#define SD_LOG_FLUSH_BATCH_SIZE 10       // Flush after 10 samples (every 1 second) or idle
 
 /* ----------------- Virtual ODrive Simulator Settings ------------- */
 #ifndef ODRIVE_VIRTUAL

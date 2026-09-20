@@ -24,6 +24,7 @@ public:
   bool enterIdle();
   bool clearErrors();
   bool pollTelemetry(ODriveTelemetry& outTelem);
+  void updateTieredTelemetry(ODriveTelemetry& ioTelem, uint32_t tickIndex) { pollTelemetry(ioTelem); }
   bool readFloatProperty(const char* prop, float& outVal, uint32_t timeoutMs = 60);
   bool writeFloatProperty(const char* prop, float val);
   bool sendRawCommand(const char* cmd, char* outBuf = nullptr, size_t maxLen = 0, uint32_t timeoutMs = 100);

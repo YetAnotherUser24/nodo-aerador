@@ -45,7 +45,7 @@ bool ODriveUART::readFloatResponse(const char* queryCmd, float& outValue, uint32
         buf[idx++] = c;
       }
     } else {
-      delay(1);
+      delayMicroseconds(50);
     }
   }
   return false;
@@ -71,7 +71,7 @@ bool ODriveUART::readUintResponse(const char* queryCmd, uint32_t& outValue, uint
         buf[idx++] = c;
       }
     } else {
-      delay(1);
+      delayMicroseconds(50);
     }
   }
   return false;
@@ -158,37 +158,127 @@ bool ODriveUART::writeFloatProperty(const char* prop, float val) {
   return sendCommand(cmd);
 }
 
+bool ODriveUART::readFeedbackFast(float& outTurns, float& outRpm) {
+  char buf[32];
+  if (sendRawCommand("f 0", buf, sizeof(buf), 12)) {
+    float pos = 0.0f;
+    float vel = 0.0f;
+    if (sscanf(buf, "%f %f", &pos, &vel) == 2) {
+      outTurns = pos;
+      outRpm = vel * 60.0f;
+      return true;
+    }
+  }
+  return false;
+}
+
+void ODriveUART::updateTieredTelemetry(ODriveTelemetry& ioTelem, uint32_t tickIndex) {
+  // Even ticks (0, 2, 4, 6... @ 10 Hz): High-rate dynamic feedback (vel + torque)
+  if ((tickIndex % 2) == 0) {
+    float velTurnsSec = 0.0f;
+    if (readFloatResponse("r axis0.vel_estimate", velTurnsSec, 12)) {
+      ioTelem.actual_rpm = velTurnsSec * 60.0f;
+    }
+    float torque = 0.0f;
+    if (readFloatResponse("r axis0.torque_estimate", torque, 12)) {
+      ioTelem.torque_estimate = torque;
+    }
+    return;
+  }
+
+  // Odd ticks: Interleave medium and slow tier queries (strictly 1 query per tick)
+  uint32_t slot = (tickIndex / 2) % 10;
+  switch (slot) {
+    case 0:
+    case 5: {
+      float ibus = 0.0f;
+      if (readFloatResponse("r ibus", ibus, 12)) {
+        ioTelem.ibus_current = ibus;
+        ioTelem.power_watts = ioTelem.vbus_voltage * ibus;
+      }
+      break;
+    }
+    case 1:
+    case 6: {
+      float vbus = 0.0f;
+      if (readFloatResponse("r vbus_voltage", vbus, 12)) {
+        ioTelem.vbus_voltage = vbus;
+      }
+      break;
+    }
+    case 2:
+    case 9: {
+      uint32_t state = 0;
+      if (readUintResponse("r axis0.current_state", state, 12)) {
+        ioTelem.current_state = (uint8_t)state;
+        ioTelem.is_armed = (state == 8);
+      }
+      break;
+    }
+    case 3:
+    case 8: {
+      float temp = 0.0f;
+      if (readFloatResponse("r axis0.fet_thermistor.temperature", temp, 12)) {
+        ioTelem.fet_temperature = temp;
+      }
+      break;
+    }
+    case 4: {
+      uint32_t activeErrors = 0;
+      if (readUintResponse("r axis0.active_errors", activeErrors, 12)) {
+        ioTelem.axis_error = activeErrors;
+      }
+      break;
+    }
+    case 7: {
+      uint32_t disarm = 0;
+      if (readUintResponse("r axis0.disarm_reason", disarm, 12)) {
+        ioTelem.disarm_reason = disarm;
+      }
+      break;
+    }
+    default:
+      break;
+  }
+}
+
 bool ODriveUART::pollTelemetry(ODriveTelemetry& outTelem) {
   float vbus = 0.0f;
   float ibus = 0.0f;
   float velTurnsSec = 0.0f;
+  float torque = 0.0f;
   uint32_t state = 0;
   bool ok = false;
 
-  if (readFloatResponse("r vbus_voltage", vbus, 30)) {
+  if (readFloatResponse("r vbus_voltage", vbus, 12)) {
     outTelem.vbus_voltage = vbus;
     ok = true;
   }
   
-  if (readFloatResponse("r ibus", ibus, 30)) {
+  if (readFloatResponse("r ibus", ibus, 12)) {
     outTelem.ibus_current = ibus;
     outTelem.power_watts = outTelem.vbus_voltage * ibus;
     ok = true;
   }
 
-  if (readFloatResponse("r axis0.vel_estimate", velTurnsSec, 30)) {
+  if (readFloatResponse("r axis0.vel_estimate", velTurnsSec, 12)) {
     outTelem.actual_rpm = velTurnsSec * 60.0f;
     ok = true;
   }
 
-  if (readUintResponse("r axis0.current_state", state, 30)) {
+  if (readFloatResponse("r axis0.torque_estimate", torque, 12)) {
+    outTelem.torque_estimate = torque;
+    ok = true;
+  }
+
+  if (readUintResponse("r axis0.current_state", state, 12)) {
     outTelem.current_state = (uint8_t)state;
-    outTelem.is_armed = (state == 8); // 8 = CLOSED_LOOP_CONTROL
+    outTelem.is_armed = (state == 8);
     ok = true;
   }
 
   uint32_t activeErrors = 0;
-  if (readUintResponse("r axis0.active_errors", activeErrors, 30)) {
+  if (readUintResponse("r axis0.active_errors", activeErrors, 12)) {
     outTelem.axis_error = activeErrors;
     ok = true;
   }
