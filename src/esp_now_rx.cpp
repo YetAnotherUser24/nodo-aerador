@@ -5,6 +5,7 @@
 
 static ControlEngine* s_controlEngine = nullptr;
 static LoggerSyncState s_loggerSyncState;
+static portMUX_TYPE s_syncMux = portMUX_INITIALIZER_UNLOCKED;
 
 #if defined(ESP_IDF_VERSION_MAJOR) && (ESP_IDF_VERSION_MAJOR >= 5)
 static void onDataRecv(const esp_now_recv_info_t *info, const uint8_t *data, int len) {
@@ -20,6 +21,7 @@ static void onDataRecv(const uint8_t *mac, const uint8_t *data, int len) {
     return;
   }
 
+  portENTER_CRITICAL(&s_syncMux);
   s_loggerSyncState.rtc_timestamp_sec = pkt->timestamp_sec;
   s_loggerSyncState.sequence = pkt->sequence;
   s_loggerSyncState.last_do_mg_l = pkt->dissolved_oxygen;
@@ -28,14 +30,18 @@ static void onDataRecv(const uint8_t *mac, const uint8_t *data, int len) {
   s_loggerSyncState.last_battery_v = pkt->battery_voltage;
   s_loggerSyncState.received_at_ms = millis();
   s_loggerSyncState.has_valid_packet = true;
+  portEXIT_CRITICAL(&s_syncMux);
 
   if (s_controlEngine != nullptr) {
     s_controlEngine->updateProcessVariable(pkt->dissolved_oxygen, pkt->water_temperature);
   }
 }
 
-const LoggerSyncState& espNowGetLoggerState() {
-  return s_loggerSyncState;
+LoggerSyncState espNowGetLoggerState() {
+  portENTER_CRITICAL(&s_syncMux);
+  LoggerSyncState copy = s_loggerSyncState;
+  portEXIT_CRITICAL(&s_syncMux);
+  return copy;
 }
 
 bool espNowRxInit(ControlEngine& engine) {

@@ -26,6 +26,10 @@ bool ODriveUART::sendCommand(const char* cmd) {
 }
 
 bool ODriveUART::readFloatResponse(const char* queryCmd, float& outValue, uint32_t timeoutMs) {
+  // Drain any lingering bytes or previous timeouts to prevent desynchronization
+  while (_serial.available()) {
+    _serial.read();
+  }
   sendCommand(queryCmd);
   
   unsigned long start = millis();
@@ -52,6 +56,10 @@ bool ODriveUART::readFloatResponse(const char* queryCmd, float& outValue, uint32
 }
 
 bool ODriveUART::readUintResponse(const char* queryCmd, uint32_t& outValue, uint32_t timeoutMs) {
+  // Drain any lingering bytes or previous timeouts to prevent desynchronization
+  while (_serial.available()) {
+    _serial.read();
+  }
   sendCommand(queryCmd);
   
   unsigned long start = millis();
@@ -287,6 +295,9 @@ bool ODriveUART::pollTelemetry(ODriveTelemetry& outTelem) {
 }
 
 bool ODriveUART::sendRawCommand(const char* cmd, char* outBuf, size_t maxLen, uint32_t timeoutMs) {
+  while (_serial.available()) {
+    _serial.read();
+  }
   sendCommand(cmd);
   if (!outBuf || maxLen == 0) return true;
 
@@ -306,7 +317,7 @@ bool ODriveUART::sendRawCommand(const char* cmd, char* outBuf, size_t maxLen, ui
         outBuf[idx++] = c;
       }
     } else {
-      delay(1);
+      delayMicroseconds(50);
     }
   }
   outBuf[idx] = '\0';

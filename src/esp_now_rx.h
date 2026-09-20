@@ -20,6 +20,6 @@ struct LoggerSyncState {
 bool espNowRxInit(ControlEngine& engine);
 
 /**
- * @brief Returns the most recent synchronized state and RTC timestamp from od-logger.
+ * @brief Returns a thread-safe snapshot of the synchronized state and RTC timestamp from od-logger.
  */
-const LoggerSyncState& espNowGetLoggerState();
+LoggerSyncState espNowGetLoggerState();

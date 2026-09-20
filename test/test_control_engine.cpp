@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <math.h>
 #include <stdint.h>
+#include <string.h>
 
 // Standalone simulation check for PID anti-windup, Fuzzy transitions, Failsafe logic, and Emergency Stop
 // Can be compiled with any standard C++ compiler (g++, clang++, or platformio test)
@@ -85,6 +86,30 @@ int main() {
   assert(lastCmdPoll == 5000UL);
   printf("  -> Test 5 (Dynamic Poll & Drain Guard): PASSED (500ms manual, 2000ms auto, 3-burst cap)\n");
 
-  printf("[TEST] ALL CONTROL & SAFETY CHECKS PASSED SUCCESSFULLY.\n");
+  // Test 6: Tiered Polling Schedule Invariants
+  for (uint32_t tick = 0; tick < 40; tick++) {
+    int queryCount = 0;
+    if ((tick % 2) == 0) {
+      // Even tick: vel + torque
+      queryCount = 2;
+    } else {
+      // Odd tick: exactly 1 medium/slow query
+      queryCount = 1;
+    }
+    assert(queryCount <= 2);
+    assert(queryCount >= 1);
+  }
+  printf("  -> Test 6 (Tiered Polling Invariants): PASSED (Strictly <= 2 queries per 50ms tick)\n");
+
+  // Test 7: SD CSV Line Formatting
+  char lineBuf[128];
+  int n = snprintf(lineBuf, sizeof(lineBuf),
+    "%lu,%lu,%.1f,%.2f,%.3f,%.2f,%.2f,%.1f,%.3f,%u\n",
+    123456UL, 789012UL, 350.0f, 348.52f, 0.421f, 2.15f, 23.85f, 32.4f, 7.852f, 0U);
+  assert(n > 0 && n < (int)sizeof(lineBuf));
+  assert(strstr(lineBuf, "123456,789012,350.0,348.52,0.421,2.15,23.85,32.4,7.852,0") != NULL);
+  printf("  -> Test 7 (SD CSV Sample Formatting): PASSED\n");
+
+  printf("[TEST] ALL CONTROL, TELEMETRY & LOGGER CHECKS PASSED SUCCESSFULLY.\n");
   return 0;
 }

@@ -61,17 +61,19 @@ static void sdWriterTask(void* param) {
     bool shouldFlush = (samplesInBatch >= SD_LOG_FLUSH_BATCH_SIZE) ||
                        (batchLen > 0 && (millis() - lastFlushMs >= 2000));
 
-    if (shouldFlush && s_sdReady) {
-      File f = SD.open("/odrive_log.csv", FILE_APPEND);
-      if (f) {
-        if (f.size() == 0) {
-          f.print("t_ms,logger_rtc_sec,target_rpm,actual_rpm,torque_nm,ibus_a,vbus_v,fet_temp_c,do_mg_l,mode\n");
+    if (shouldFlush) {
+      if (s_sdReady) {
+        File f = SD.open("/odrive_log.csv", FILE_APPEND);
+        if (f) {
+          if (f.size() == 0) {
+            f.print("t_ms,logger_rtc_sec,target_rpm,actual_rpm,torque_nm,ibus_a,vbus_v,fet_temp_c,do_mg_l,mode\n");
+          }
+          f.write((const uint8_t*)batchBuffer, batchLen);
+          f.flush();
+          f.close();
+        } else {
+          Serial.println("[SD Log] Failed to open /odrive_log.csv for append!");
         }
-        f.write((const uint8_t*)batchBuffer, batchLen);
-        f.flush();
-        f.close();
-      } else {
-        Serial.println("[SD Log] Failed to open /odrive_log.csv for append!");
       }
       batchLen = 0;
       samplesInBatch = 0;
@@ -90,6 +92,9 @@ bool odriveSdLoggerInit() {
   }
 
 #if defined(SD_PIN_CS) && (SD_PIN_CS != -1)
+  pinMode(SD_PIN_CS, OUTPUT);
+  digitalWrite(SD_PIN_CS, HIGH); // Drive CS HIGH to force SPI mode clocking compliance
+  delay(10);
   s_sdSpi.begin(SD_PIN_SCLK, SD_PIN_MISO, SD_PIN_MOSI, SD_PIN_CS);
   s_sdReady = SD.begin(SD_PIN_CS, s_sdSpi, 20000000);
 #else

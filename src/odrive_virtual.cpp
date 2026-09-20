@@ -155,7 +155,14 @@ bool ODriveVirtual::pollTelemetry(ODriveTelemetry& outTelem) {
   outTelem.ibus_current = _ibus;
   outTelem.actual_rpm = _actualRpm;
   outTelem.power_watts = _power;
+  
+  // Estimate mechanical torque from power & angular speed (tau = P / omega)
+  float omegaRadS = (_actualRpm * 2.0f * 3.14159265f) / 60.0f;
+  outTelem.torque_estimate = (omegaRadS > 0.1f) ? (_power / omegaRadS) : 0.0f;
+  outTelem.fet_temperature = 28.0f + (_ibus * 1.5f);
+
   outTelem.axis_error = _axisError;
+  outTelem.disarm_reason = (_state == 1 && !_isArmed) ? 1 : 0;
   outTelem.current_state = _state;
   outTelem.control_mode = _controlMode;
   outTelem.input_mode = _inputMode;
@@ -178,6 +185,15 @@ bool ODriveVirtual::readFloatProperty(const char* prop, float& outVal, uint32_t 
   }
   if (strstr(prop, "vel_estimate")) {
     outVal = _actualRpm / 60.0f; // turns/sec
+    return true;
+  }
+  if (strstr(prop, "torque_estimate")) {
+    float omegaRadS = (_actualRpm * 2.0f * 3.14159265f) / 60.0f;
+    outVal = (omegaRadS > 0.1f) ? (_power / omegaRadS) : 0.0f;
+    return true;
+  }
+  if (strstr(prop, "fet_thermistor")) {
+    outVal = 28.0f + (_ibus * 1.5f);
     return true;
   }
   return false;
