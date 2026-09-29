@@ -23,12 +23,8 @@
 #define ODRIVE_SERIAL_RX_PIN    12
 #endif
 
-#ifndef ODRIVE_BAUD_RATE
-#if defined(BOARD_LILYGO_LORA32)
-#define ODRIVE_BAUD_RATE        460800   // High-speed low-latency UART for LilyGO HAT
-#else
-#define ODRIVE_BAUD_RATE        115200
-#endif
+#ifndef ODRIVE_BAUD_RATE 
+#define ODRIVE_BAUD_RATE        115200   // ODrive S1 default UART baud rate (compatible with ESP32-S3 and LilyGO HAT)
 #endif
 
 #ifndef ODRIVE_UART_DEBUG

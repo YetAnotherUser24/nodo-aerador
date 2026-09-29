@@ -184,11 +184,11 @@ void ODriveUART::updateTieredTelemetry(ODriveTelemetry& ioTelem, uint32_t tickIn
   // Even ticks (0, 2, 4, 6... @ 10 Hz): High-rate dynamic feedback (vel + torque)
   if ((tickIndex % 2) == 0) {
     float velTurnsSec = 0.0f;
-    if (readFloatResponse("r axis0.vel_estimate", velTurnsSec, 12)) {
+    if (readFloatResponse("r axis0.vel_estimate", velTurnsSec, 15)) {
       ioTelem.actual_rpm = velTurnsSec * 60.0f;
     }
     float torque = 0.0f;
-    if (readFloatResponse("r axis0.torque_estimate", torque, 12)) {
+    if (readFloatResponse("r axis0.motor.torque_estimate", torque, 15)) {
       ioTelem.torque_estimate = torque;
     }
     return;
@@ -200,7 +200,7 @@ void ODriveUART::updateTieredTelemetry(ODriveTelemetry& ioTelem, uint32_t tickIn
     case 0:
     case 5: {
       float ibus = 0.0f;
-      if (readFloatResponse("r ibus", ibus, 12)) {
+      if (readFloatResponse("r ibus", ibus, 15)) {
         ioTelem.ibus_current = ibus;
         ioTelem.power_watts = ioTelem.vbus_voltage * ibus;
       }
@@ -209,7 +209,7 @@ void ODriveUART::updateTieredTelemetry(ODriveTelemetry& ioTelem, uint32_t tickIn
     case 1:
     case 6: {
       float vbus = 0.0f;
-      if (readFloatResponse("r vbus_voltage", vbus, 12)) {
+      if (readFloatResponse("r vbus_voltage", vbus, 15)) {
         ioTelem.vbus_voltage = vbus;
       }
       break;
@@ -217,7 +217,7 @@ void ODriveUART::updateTieredTelemetry(ODriveTelemetry& ioTelem, uint32_t tickIn
     case 2:
     case 9: {
       uint32_t state = 0;
-      if (readUintResponse("r axis0.current_state", state, 12)) {
+      if (readUintResponse("r axis0.current_state", state, 15)) {
         ioTelem.current_state = (uint8_t)state;
         ioTelem.is_armed = (state == 8);
       }
@@ -226,21 +226,21 @@ void ODriveUART::updateTieredTelemetry(ODriveTelemetry& ioTelem, uint32_t tickIn
     case 3:
     case 8: {
       float temp = 0.0f;
-      if (readFloatResponse("r axis0.fet_thermistor.temperature", temp, 12)) {
+      if (readFloatResponse("r axis0.motor.fet_thermistor.temperature", temp, 15)) {
         ioTelem.fet_temperature = temp;
       }
       break;
     }
     case 4: {
       uint32_t activeErrors = 0;
-      if (readUintResponse("r axis0.active_errors", activeErrors, 12)) {
+      if (readUintResponse("r axis0.active_errors", activeErrors, 15)) {
         ioTelem.axis_error = activeErrors;
       }
       break;
     }
     case 7: {
       uint32_t disarm = 0;
-      if (readUintResponse("r axis0.disarm_reason", disarm, 12)) {
+      if (readUintResponse("r axis0.disarm_reason", disarm, 15)) {
         ioTelem.disarm_reason = disarm;
       }
       break;
@@ -258,35 +258,35 @@ bool ODriveUART::pollTelemetry(ODriveTelemetry& outTelem) {
   uint32_t state = 0;
   bool ok = false;
 
-  if (readFloatResponse("r vbus_voltage", vbus, 12)) {
+  if (readFloatResponse("r vbus_voltage", vbus, 30)) {
     outTelem.vbus_voltage = vbus;
     ok = true;
   }
   
-  if (readFloatResponse("r ibus", ibus, 12)) {
+  if (readFloatResponse("r ibus", ibus, 30)) {
     outTelem.ibus_current = ibus;
     outTelem.power_watts = outTelem.vbus_voltage * ibus;
     ok = true;
   }
 
-  if (readFloatResponse("r axis0.vel_estimate", velTurnsSec, 12)) {
+  if (readFloatResponse("r axis0.vel_estimate", velTurnsSec, 30)) {
     outTelem.actual_rpm = velTurnsSec * 60.0f;
     ok = true;
   }
 
-  if (readFloatResponse("r axis0.torque_estimate", torque, 12)) {
+  if (readFloatResponse("r axis0.motor.torque_estimate", torque, 30)) {
     outTelem.torque_estimate = torque;
     ok = true;
   }
 
-  if (readUintResponse("r axis0.current_state", state, 12)) {
+  if (readUintResponse("r axis0.current_state", state, 30)) {
     outTelem.current_state = (uint8_t)state;
     outTelem.is_armed = (state == 8);
     ok = true;
   }
 
   uint32_t activeErrors = 0;
-  if (readUintResponse("r axis0.active_errors", activeErrors, 12)) {
+  if (readUintResponse("r axis0.active_errors", activeErrors, 30)) {
     outTelem.axis_error = activeErrors;
     ok = true;
   }
