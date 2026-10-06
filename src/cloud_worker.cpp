@@ -11,6 +11,10 @@
 #include <ArduinoOTA.h>
 #endif
 
+#ifndef LED_BUILTIN
+#define LED_BUILTIN 8 // GPIO 8 is the blue LED on ESP32-S3 SuperMini
+#endif
+
 static SharedTelemetry s_sharedTelem;
 static portMUX_TYPE s_telemMux = portMUX_INITIALIZER_UNLOCKED;
 static ControlEngine* s_engine = nullptr;
@@ -463,6 +467,9 @@ static void setupOTA() {
 static void cloudWorkerTask(void* pvParameters) {
   remoteLogPrintf("[Cloud Worker] Task started on Core 0\n");
 
+  pinMode(LED_BUILTIN, OUTPUT);
+  digitalWrite(LED_BUILTIN, HIGH); // Assuming active-low LED, turn OFF initially
+
   WiFiClientSecure client;
   client.setInsecure(); // ponytail: skip cert pinning for serverless Vercel endpoints
   client.setTimeout(4);
@@ -491,9 +498,14 @@ static void cloudWorkerTask(void* pvParameters) {
       if (WiFi.status() == WL_CONNECTED) {
         Serial.printf("[Cloud Worker] WiFi connected. IP: %s (RSSI: %d dBm)\n",
                       WiFi.localIP().toString().c_str(), WiFi.RSSI());
+        digitalWrite(LED_BUILTIN, LOW); // Turn ON LED
       } else {
         Serial.println("[Cloud Worker] WiFi connection timed out, will retry...");
+        digitalWrite(LED_BUILTIN, HIGH); // Turn OFF LED
       }
+    } else {
+      // WiFi is connected, keep LED ON
+      digitalWrite(LED_BUILTIN, LOW);
     }
 
     if (WiFi.status() == WL_CONNECTED) {
