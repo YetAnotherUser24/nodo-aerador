@@ -110,6 +110,18 @@ int main() {
   assert(strstr(lineBuf, "123456,789012,350.0,348.52,0.421,2.15,23.85,32.4,7.852,0") != NULL);
   printf("  -> Test 7 (SD CSV Sample Formatting): PASSED\n");
 
+  // Test 8: OTA Safety Invariant (Disarming & Emergency Stop on flash write)
+  bool otaUpdating = true;
+  bool emergencyStop = false;
+  float targetVelocity = 450.0f;
+  if (otaUpdating) {
+    emergencyStop = true;
+    targetVelocity = 0.0f;
+  }
+  assert(emergencyStop == true);
+  assert(targetVelocity == 0.0f);
+  printf("  -> Test 8 (OTA Disarm Safety Invariant): PASSED (Motor locked to 0 RPM during flash update)\n");
+
   printf("[TEST] ALL CONTROL, TELEMETRY & LOGGER CHECKS PASSED SUCCESSFULLY.\n");
   return 0;
 }

@@ -18,6 +18,7 @@
 static QueueHandle_t s_logQueue = nullptr;
 static TaskHandle_t s_sdTaskHandle = nullptr;
 static bool s_sdReady = false;
+static volatile bool s_sdPaused = false;
 
 #if defined(SD_SPI_HOST)
 static SPIClass s_sdSpi(SD_SPI_HOST);
@@ -25,9 +26,10 @@ static SPIClass s_sdSpi(SD_SPI_HOST);
 static SPIClass s_sdSpi(HSPI);
 #endif
 
+static char s_lineBuffer[128];
+static char s_batchBuffer[1500];
+
 static void sdWriterTask(void* param) {
-  char lineBuffer[128];
-  char batchBuffer[1500];
   size_t batchLen = 0;
   size_t samplesInBatch = 0;
   unsigned long lastFlushMs = millis();
@@ -36,13 +38,14 @@ static void sdWriterTask(void* param) {
     OdriveLogSample sample;
     // Wait up to 500 ms for an incoming sample
     if (xQueueReceive(s_logQueue, &sample, pdMS_TO_TICKS(500)) == pdTRUE) {
-      int n = snprintf(lineBuffer, sizeof(lineBuffer),
-        "%lu,%lu,%.1f,%.2f,%.3f,%.2f,%.2f,%.1f,%.3f,%u\n",
+      int n = snprintf(s_lineBuffer, sizeof(s_lineBuffer),
+        "%lu,%lu,%.1f,%.2f,%.3f,%.3f,%.2f,%.2f,%.1f,%.3f,%u\n",
         (unsigned long)sample.t_ms,
         (unsigned long)sample.logger_rtc_sec,
         sample.target_rpm,
         sample.actual_rpm,
         sample.torque_nm,
+        sample.iq_a,
         sample.ibus_a,
         sample.vbus_v,
         sample.fet_temp_c,
@@ -50,8 +53,8 @@ static void sdWriterTask(void* param) {
         (unsigned int)sample.control_mode
       );
 
-      if (n > 0 && (batchLen + n < sizeof(batchBuffer))) {
-        memcpy(batchBuffer + batchLen, lineBuffer, n);
+      if (n > 0 && (batchLen + n < sizeof(s_batchBuffer))) {
+        memcpy(s_batchBuffer + batchLen, s_lineBuffer, n);
         batchLen += n;
         samplesInBatch++;
       }
@@ -62,13 +65,13 @@ static void sdWriterTask(void* param) {
                        (batchLen > 0 && (millis() - lastFlushMs >= 2000));
 
     if (shouldFlush) {
-      if (s_sdReady) {
+      if (s_sdReady && !s_sdPaused) {
         File f = SD.open("/odrive_log.csv", FILE_APPEND);
         if (f) {
           if (f.size() == 0) {
-            f.print("t_ms,logger_rtc_sec,target_rpm,actual_rpm,torque_nm,ibus_a,vbus_v,fet_temp_c,do_mg_l,mode\n");
+            f.print("t_ms,logger_rtc_sec,target_rpm,actual_rpm,torque_nm,iq_a,ibus_a,vbus_v,fet_temp_c,do_mg_l,mode\n");
           }
-          f.write((const uint8_t*)batchBuffer, batchLen);
+          f.write((const uint8_t*)s_batchBuffer, batchLen);
           f.flush();
           f.close();
         } else {
@@ -108,11 +111,11 @@ bool odriveSdLoggerInit() {
     Serial.println("[SD Log] WARNING: MicroSD card mount failed! Logger queue active but logging disabled.");
   }
 
-  // Create Core 0 background writer task with 4 KB stack
+  // Create Core 0 background writer task with 8 KB stack
   BaseType_t res = xTaskCreatePinnedToCore(
     sdWriterTask,
     "SdLogTask",
-    4096,
+    8192,
     nullptr,
     1,
     &s_sdTaskHandle,
@@ -130,6 +133,10 @@ bool odriveSdLoggerEnqueue(const OdriveLogSample& sample) {
 
 bool odriveSdLoggerIsReady() {
   return s_sdReady;
+}
+
+void odriveSdLoggerPause(bool pause) {
+  s_sdPaused = pause;
 }
 
 void odriveSdLoggerFlush() {
@@ -154,5 +161,7 @@ bool odriveSdLoggerIsReady() {
 }
 
 void odriveSdLoggerFlush() {}
+
+void odriveSdLoggerPause(bool pause) {}
 
 #endif

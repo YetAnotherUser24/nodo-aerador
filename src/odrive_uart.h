@@ -7,6 +7,7 @@ struct ODriveTelemetry {
   float actual_rpm = 0.0f;
   float power_watts = 0.0f;
   float torque_estimate = 0.0f;    // Estimated mechanical torque (Nm)
+  float iq_measured = 0.0f;        // Phase current (A)
   float fet_temperature = 0.0f;    // Inverter MOSFET thermistor temperature (°C)
   uint32_t axis_error = 0;         // active_errors bitmask
   uint32_t disarm_reason = 0;      // disarm_reason bitmask

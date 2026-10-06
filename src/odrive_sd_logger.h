@@ -18,6 +18,7 @@ struct OdriveLogSample {
   float target_rpm;        // Commanded target speed
   float actual_rpm;        // Measured motor speed
   float torque_nm;         // Estimated mechanical torque
+  float iq_a;              // Phase current (Iq)
   float ibus_a;            // Total DC bus current
   float vbus_v;            // DC bus power supply voltage
   float fet_temp_c;        // Inverter MOSFET temperature
@@ -48,3 +49,8 @@ bool odriveSdLoggerIsReady();
  * @brief Explicitly flushes any pending samples to the SD card.
  */
 void odriveSdLoggerFlush();
+
+/**
+ * @brief Pauses or resumes the SD logger (e.g. during OTA updates to prevent SPI bus blocking).
+ */
+void odriveSdLoggerPause(bool pause);

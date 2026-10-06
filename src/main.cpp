@@ -80,13 +80,18 @@ void setup() {
   // 5. Initial attempt to engage closed-loop control on ODrive S1
   odrive.clearErrors();
   delay(100);
+  odrive.setControlMode(ODRIVE_CONTROL_MODE, ODRIVE_INPUT_MODE);
+  delay(50);
+  odrive.writeFloatProperty("axis0.controller.config.vel_ramp_rate", ODRIVE_VEL_RAMP_RATE);
+  delay(50);
   odrive.enterClosedLoop();
   delay(100);
   if (odrive.pollTelemetry(cachedODriveTelem)) {
-    Serial.printf("[Init] ODrive connected: %.1fV | State: %u (%s)\n",
+    Serial.printf("[Init] ODrive connected: %.1fV | State: %u (%s) | Mode: VEL_RAMP (%.1f rev/s^2)\n",
                   cachedODriveTelem.vbus_voltage,
                   cachedODriveTelem.current_state,
-                  cachedODriveTelem.is_armed ? "ARMED" : "DISARMED");
+                  cachedODriveTelem.is_armed ? "ARMED" : "DISARMED",
+                  ODRIVE_VEL_RAMP_RATE);
   } else {
     Serial.println("[Init] WARNING: ODrive not responding on UART! Check wiring & power.");
   }
@@ -126,6 +131,8 @@ void loop() {
     sTelem.vbus_voltage = cachedODriveTelem.vbus_voltage;
     sTelem.ibus_current = cachedODriveTelem.ibus_current;
     sTelem.power_watts = cachedODriveTelem.power_watts;
+    sTelem.torque_estimate = cachedODriveTelem.torque_estimate;
+    sTelem.iq_measured = cachedODriveTelem.iq_measured;
     sTelem.measured_do = controlEngine.getLastMeasuredDo();
     sTelem.water_temp = controlEngine.getLastWaterTemp();
     sTelem.is_on = (targetRpm > 10.0f);
@@ -146,6 +153,7 @@ void loop() {
       sample.target_rpm = targetRpm;
       sample.actual_rpm = cachedODriveTelem.actual_rpm;
       sample.torque_nm = cachedODriveTelem.torque_estimate;
+      sample.iq_a = cachedODriveTelem.iq_measured;
       sample.ibus_a = cachedODriveTelem.ibus_current;
       sample.vbus_v = cachedODriveTelem.vbus_voltage;
       sample.fet_temp_c = cachedODriveTelem.fet_temperature;
@@ -162,7 +170,7 @@ void loop() {
       const char* modeStr = (cfg.mode == MODE_PID) ? "PID" :
                             ((cfg.mode == MODE_FUZZY) ? "FUZZY" : "MANUAL");
 
-      Serial.printf("[CTRL Core 1] Mode: %s | DO: %.2f mg/L | Target: %.0f RPM | Act: %.0f RPM | %.1fV %.2fA (%.1fW) | Torq: %.2fNm%s%s%s%s\n",
+      remoteLogPrintf("[CTRL Core 1] Mode: %s | DO: %.2f mg/L | Target: %.0f RPM | Act: %.0f RPM | %.1fV %.2fA (%.1fW) | Iq: %.3fA%s%s%s%s\n",
                     modeStr,
                     controlEngine.getLastMeasuredDo(),
                     targetRpm,

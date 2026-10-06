@@ -135,20 +135,43 @@
 #endif
 
 #ifndef LED_PIN
-#if defined(CONFIG_IDF_TARGET_ESP32S3)
 #define LED_PIN -1
-#else
-#define LED_PIN 2
-#endif
 #endif
 
 /* Hardware UART for ODrive S1 */
 #ifndef ODRIVE_SERIAL_TX_PIN
-#define ODRIVE_SERIAL_TX_PIN 13
+#define ODRIVE_SERIAL_TX_PIN 2
 #endif
 
 #ifndef ODRIVE_SERIAL_RX_PIN
-#define ODRIVE_SERIAL_RX_PIN 12
+#define ODRIVE_SERIAL_RX_PIN 3
+#endif
+
+/* Battery ADC Pin */
+#ifndef BOARD_BAT_ADC_PIN
+#define BOARD_BAT_ADC_PIN 13
+#endif
+
+
+/* Onboard MicroSD Dedicated SPI Controller (HSPI / SPI2) */
+#ifndef SD_SPI_HOST
+#define SD_SPI_HOST HSPI
+#endif
+
+#ifndef SD_PIN_CS
+#define SD_PIN_CS 7 
+#endif
+
+#ifndef SD_PIN_SCLK
+#define SD_PIN_SCLK 5
+#endif
+
+#ifndef SD_PIN_MISO
+#define SD_PIN_MISO 4
+#endif
+
+#ifndef SD_PIN_MOSI
+#define SD_PIN_MOSI 6
 #endif
 
 #endif

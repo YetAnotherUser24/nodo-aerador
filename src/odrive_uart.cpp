@@ -12,6 +12,16 @@ bool ODriveUART::begin() {
   delay(50);
   // Ensure velocity limit allows up to 3500 RPM (58.3 turns/s)
   sendCommand("w axis0.controller.config.vel_limit 65.0");
+  delay(30);
+  // Configure Velocity Control with Velocity Ramp input mode
+  sendCommand("w axis0.controller.config.control_mode 2");
+  delay(30);
+  sendCommand("w axis0.controller.config.input_mode 2");
+  delay(30);
+  // Set maximum velocity ramp rate (10 rev/s^2)
+  char rampCmd[48];
+  snprintf(rampCmd, sizeof(rampCmd), "w axis0.controller.config.vel_ramp_rate %.2f", ODRIVE_VEL_RAMP_RATE);
+  sendCommand(rampCmd);
   return true;
 }
 
@@ -42,8 +52,12 @@ bool ODriveUART::readFloatResponse(const char* queryCmd, float& outValue, uint32
       if (c == '\n' || c == '\r') {
         if (idx > 0) {
           buf[idx] = '\0';
-          outValue = atof(buf);
-          return true;
+          // Reject error responses like "invalid property"
+          if (isdigit((unsigned char)buf[0]) || buf[0] == '-' || buf[0] == '+' || buf[0] == '.') {
+            outValue = (float)atof(buf);
+            return true;
+          }
+          return false;
         }
       } else if (idx < sizeof(buf) - 1) {
         buf[idx++] = c;
@@ -72,8 +86,11 @@ bool ODriveUART::readUintResponse(const char* queryCmd, uint32_t& outValue, uint
       if (c == '\n' || c == '\r') {
         if (idx > 0) {
           buf[idx] = '\0';
-          outValue = (uint32_t)strtoul(buf, NULL, 10);
-          return true;
+          if (isdigit((unsigned char)buf[0])) {
+            outValue = (uint32_t)strtoul(buf, NULL, 10);
+            return true;
+          }
+          return false;
         }
       } else if (idx < sizeof(buf) - 1) {
         buf[idx++] = c;
@@ -187,8 +204,12 @@ void ODriveUART::updateTieredTelemetry(ODriveTelemetry& ioTelem, uint32_t tickIn
     if (readFloatResponse("r axis0.vel_estimate", velTurnsSec, 15)) {
       ioTelem.actual_rpm = velTurnsSec * 60.0f;
     }
+    float iq = 0.0f;
+    if (readFloatResponse("r axis0.motor.foc.Iq_measured", iq, 12)) {
+      ioTelem.iq_measured = iq;
+    }
     float torque = 0.0f;
-    if (readFloatResponse("r axis0.motor.torque_estimate", torque, 15)) {
+    if (readFloatResponse("r axis0.motor.torque_estimate", torque, 12)) {
       ioTelem.torque_estimate = torque;
     }
     return;
@@ -226,7 +247,8 @@ void ODriveUART::updateTieredTelemetry(ODriveTelemetry& ioTelem, uint32_t tickIn
     case 3:
     case 8: {
       float temp = 0.0f;
-      if (readFloatResponse("r axis0.motor.fet_thermistor.temperature", temp, 15)) {
+      if (readFloatResponse("r axis0.fet_thermistor.temperature", temp, 15) ||
+          readFloatResponse("r axis0.motor.fet_thermistor.temperature", temp, 15)) {
         ioTelem.fet_temperature = temp;
       }
       break;
@@ -274,7 +296,13 @@ bool ODriveUART::pollTelemetry(ODriveTelemetry& outTelem) {
     ok = true;
   }
 
-  if (readFloatResponse("r axis0.motor.torque_estimate", torque, 30)) {
+  float iq = 0.0f;
+  if (readFloatResponse("r axis0.motor.foc.Iq_measured", iq, 20)) {
+    outTelem.iq_measured = iq;
+    ok = true;
+  }
+
+  if (readFloatResponse("r axis0.motor.torque_estimate", torque, 20)) {
     outTelem.torque_estimate = torque;
     ok = true;
   }

@@ -9,6 +9,8 @@ struct SharedTelemetry {
   float vbus_voltage = 0.0f;
   float ibus_current = 0.0f;
   float power_watts = 0.0f;
+  float torque_estimate = 0.0f;
+  float iq_measured = 0.0f;
   float measured_do = 0.0f;
   float water_temp = 0.0f;
   bool is_on = false;
@@ -24,3 +26,10 @@ void updateSharedTelemetry(const SharedTelemetry& telem);
  * Core 0 interacts strictly with ControlEngine (never directly with hardware UART).
  */
 void startCloudWorker(ControlEngine& engine);
+
+/**
+ * @brief Thread-safe logging function that outputs to both local USB Serial and WiFi Telnet clients.
+ */
+void remoteLogPrint(const char* str);
+void remoteLogPrintf(const char* format, ...) __attribute__((format(printf, 1, 2)));
+

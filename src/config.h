@@ -31,6 +31,19 @@
 #define ODRIVE_UART_DEBUG       0        // 1 = Log raw UART commands to Serial, 0 = Clean/Quiet
 #endif
 
+/* -------------------- ODrive Motion & Limits --------------------- */
+#ifndef ODRIVE_CONTROL_MODE
+#define ODRIVE_CONTROL_MODE     2        // 2 = VELOCITY_CONTROL
+#endif
+
+#ifndef ODRIVE_INPUT_MODE
+#define ODRIVE_INPUT_MODE       2        // 2 = VEL_RAMP (Ramped Velocity Control)
+#endif
+
+#ifndef ODRIVE_VEL_RAMP_RATE
+#define ODRIVE_VEL_RAMP_RATE    10.0f    // Maximum acceleration: 10 rev/s^2 (turns/s^2)
+#endif
+
 /* -------------------- Aeration Control Defaults ----------------- */
 #define DEFAULT_TARGET_DO_MG_L  7.5f     // Target dissolved oxygen setpoint
 #define DEFAULT_KP              100.0f
@@ -45,8 +58,8 @@
 /* ------------------------ Timing Intervals ----------------------- */
 #define CONTROL_LOOP_INTERVAL_MS 50UL         // 20 Hz deterministic loop on Core 1
 #define TELEMETRY_PUSH_INTERVAL_MS 3000UL     // 3-second cloud push on Core 0
-#define COMMAND_POLL_INTERVAL_MS   2000UL     // 2-second cloud command check in Auto mode (PID / Fuzzy)
-#define COMMAND_POLL_INTERVAL_MANUAL_MS 500UL // 500ms fast cloud command check in Manual mode
+#define COMMAND_POLL_INTERVAL_MS   1500UL     // 1.5-second cloud command check in Auto mode (PID / Fuzzy)
+#define COMMAND_POLL_INTERVAL_MANUAL_MS 1000UL // 1-second cloud command check in Manual mode
 
 // New: telemetry sample interval (~3 Hz) to build batch of 9 samples per push
 #define TELEMETRY_SAMPLE_INTERVAL_MS 350UL 
@@ -56,7 +69,7 @@
 #if defined(BOARD_LILYGO_LORA32) && (!defined(ODRIVE_VIRTUAL) || !ODRIVE_VIRTUAL)
 #define SD_LOG_ENABLED          1        // Enable high-speed SD logging on LilyGO hardware
 #else
-#define SD_LOG_ENABLED          0
+#define SD_LOG_ENABLED          1
 #endif
 #endif
 
@@ -69,6 +82,22 @@
 #define ODRIVE_VIRTUAL          0        // 1 = Simulation mode (no physical ODrive / no ESP-NOW), 0 = Real hardware
 #endif
 #define VIRTUAL_VBUS_NOMINAL    24.0f    // Simulated nominal DC bus voltage (V)
-#define VIRTUAL_RAMP_RPM_PER_S  1500.0f  // Simulated acceleration ramp rate (RPM/s)
+#define VIRTUAL_RAMP_RPM_PER_S  600.0f   // Simulated acceleration ramp rate: 10 rev/s^2 (600 RPM/s)
 #define VIRTUAL_IBUS_IDLE       0.15f    // Quiescent driver current (A)
 #define VIRTUAL_IBUS_MAX_LOAD   9.5f     // Max continuous motor current at 3500 RPM under water load (A)
+
+/* ------------------------ Over-The-Air (OTA) --------------------- */
+#ifndef OTA_ENABLED
+#define OTA_ENABLED             1        // 1 = Enable ArduinoOTA over WiFi, 0 = Disable
+#endif
+#define OTA_HOSTNAME            "aquacontrol-odrive" // mDNS name (aquacontrol-odrive.local)
+#define OTA_PORT                3232     // Default ESP32 OTA port
+#define OTA_PASSWORD            ""       // Optional authentication password (empty = no password)
+
+/* ------------------------ WiFi Telnet Stream --------------------- */
+#ifndef TELNET_LOG_ENABLED
+#define TELNET_LOG_ENABLED      0       // 1 = Enable remote Telnet terminal over WiFi, 0 = Disable
+#endif
+#define TELNET_LOG_PORT         23       // Standard Telnet port
+
+
