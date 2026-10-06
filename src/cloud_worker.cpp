@@ -486,26 +486,38 @@ static void cloudWorkerTask(void* pvParameters) {
   bool telnetInitialized = false;
 #endif
 
+  WiFi.mode(WIFI_STA);
+  WiFi.setAutoReconnect(true);
+  WiFi.setTxPower(WIFI_POWER_8_5dBm); // Reduce TX power for ESP32-S3 SuperMini stability
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+
+  unsigned long lastWifiRetry = millis();
+  bool wasConnected = false;
+
   while (true) {
     if (WiFi.status() != WL_CONNECTED) {
-      Serial.printf("[Cloud Worker] Connecting to WiFi '%s'...\n", WIFI_SSID);
-      WiFi.setTxPower(WIFI_POWER_8_5dBm); // Reduce TX power for ESP32-S3 SuperMini stability
-      WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-      unsigned long t0 = millis();
-      while (WiFi.status() != WL_CONNECTED && millis() - t0 < 10000) {
-        vTaskDelay(pdMS_TO_TICKS(500));
+      if (wasConnected) {
+        Serial.println("[Cloud Worker] WiFi disconnected. Auto-reconnect active...");
+        digitalWrite(LED_BUILTIN, HIGH); // Turn OFF LED
+        wasConnected = false;
+        lastWifiRetry = millis();
       }
-      if (WiFi.status() == WL_CONNECTED) {
+      
+      // If auto-reconnect fails for 30s, force a clean restart of the WiFi stack
+      if (millis() - lastWifiRetry > 30000) {
+        Serial.printf("[Cloud Worker] WiFi stuck. Forcing restart to '%s'...\n", WIFI_SSID);
+        WiFi.disconnect(true);
+        vTaskDelay(pdMS_TO_TICKS(100));
+        WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+        lastWifiRetry = millis();
+      }
+    } else {
+      if (!wasConnected) {
         Serial.printf("[Cloud Worker] WiFi connected. IP: %s (RSSI: %d dBm)\n",
                       WiFi.localIP().toString().c_str(), WiFi.RSSI());
         digitalWrite(LED_BUILTIN, LOW); // Turn ON LED
-      } else {
-        Serial.println("[Cloud Worker] WiFi connection timed out, will retry...");
-        digitalWrite(LED_BUILTIN, HIGH); // Turn OFF LED
+        wasConnected = true;
       }
-    } else {
-      // WiFi is connected, keep LED ON
-      digitalWrite(LED_BUILTIN, LOW);
     }
 
     if (WiFi.status() == WL_CONNECTED) {
