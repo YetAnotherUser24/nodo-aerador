@@ -55,6 +55,14 @@
 #define FAILSAFE_MOTOR_RPM      0.0f     // Baseline safety aeration if sensor drops (0 RPM default safe)
 #define FAILSAFE_TIMEOUT_MS     35000UL  // Fall back to failsafe after 35s without DO packet
 
+// Tensión mínima de bus para (re)armar el ODrive.
+// Antes la condición de re-armado era `vbus_voltage > 12.0f`, es decir EXACTAMENTE la tensión
+// nominal del banco (fuente de 12 VDC, AGENTS.md regla 12). Con el bus en reposo a ~12.0 V y
+// cualquier caída por consumo, la comparación quedaba por debajo del umbral y el ODrive NO volvía
+// a armarse tras un E-Stop o un desarme: el motor se quedaba a 0 RPM de forma permanente y sin
+// ningún aviso. El umbral se baja a un valor holgadamente inferior al nominal.
+#define ODRIVE_ARM_MIN_VBUS     8.0f
+
 /* ------------------------ Timing Intervals ----------------------- */
 #define CONTROL_LOOP_INTERVAL_MS 50UL         // 20 Hz deterministic loop on Core 1
 #define TELEMETRY_PUSH_INTERVAL_MS 5000UL     // 5-second cloud push on Core 0

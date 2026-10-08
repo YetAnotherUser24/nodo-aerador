@@ -117,8 +117,10 @@ void loop() {
       odrive.setVelocityRpm(0.0f);
       odrive.enterIdle();
     } else {
-      // If disarmed (e.g. recovering from e-stop or power-on) but DC bus is alive, re-arm
-      if (!cachedODriveTelem.is_armed && cachedODriveTelem.vbus_voltage > 12.0f) {
+      // If disarmed (e.g. recovering from e-stop or power-on) but DC bus is alive, re-arm.
+      // OJO: el umbral NO puede ser la tensión nominal del banco (12 V), porque el bus cae por
+      // debajo al menor consumo y el motor se quedaría sin armar para siempre.
+      if (!cachedODriveTelem.is_armed && cachedODriveTelem.vbus_voltage > ODRIVE_ARM_MIN_VBUS) {
         odrive.enterClosedLoop();
       }
       targetRpm = controlEngine.computeOutputRpm(now);
