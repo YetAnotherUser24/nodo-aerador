@@ -54,3 +54,14 @@ void odriveSdLoggerFlush();
  * @brief Pauses or resumes the SD logger (e.g. during OTA updates to prevent SPI bus blocking).
  */
 void odriveSdLoggerPause(bool pause);
+
+/**
+ * @brief Sets the 8.3 FAT log filename for the active experiment (e.g. "EXP_01.CSV").
+ * The basename is sanitized to at most 8 uppercase characters plus the ".CSV" extension.
+ */
+void odriveSdLoggerSetFile(const char* filename83);
+
+/**
+ * @brief Enables/disables experiment-scoped logging (V4 §2.1: logging is disabled in IDLE).
+ */
+void odriveSdLoggerSetActive(bool active);

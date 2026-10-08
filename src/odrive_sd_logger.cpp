@@ -29,6 +29,33 @@ static SPIClass s_sdSpi(HSPI);
 static char s_lineBuffer[128];
 static char s_batchBuffer[1500];
 
+/** Nombre de archivo 8.3 FAT del experimento activo (V4). */
+static char s_logPath[24] = "/ODRLOG.CSV";
+/** V4 §2.1: la grabación SD solo se habilita durante ACTIVE_EXPERIMENT. */
+static volatile bool s_expLogging = false;
+
+void odriveSdLoggerSetFile(const char* filename83) {
+  if (filename83 == nullptr || filename83[0] == '\0') return;
+
+  char base[9];
+  size_t k = 0;
+  for (size_t i = 0; filename83[i] != '\0' && filename83[i] != '.' && k < 8; i++) {
+    char c = filename83[i];
+    if (c == '/' || c == '\\' || c == ' ' || c == ':') continue;
+    base[k++] = (char)toupper((unsigned char)c);
+  }
+  base[k] = '\0';
+  if (k == 0) return;
+
+  snprintf(s_logPath, sizeof(s_logPath), "/%s.CSV", base);
+  Serial.printf("[SD Log] Experiment file set to %s\n", s_logPath);
+}
+
+void odriveSdLoggerSetActive(bool active) {
+  s_expLogging = active;
+  Serial.printf("[SD Log] Logging %s\n", active ? "ENABLED (experiment)" : "DISABLED (idle)");
+}
+
 static void sdWriterTask(void* param) {
   size_t batchLen = 0;
   size_t samplesInBatch = 0;
@@ -38,6 +65,9 @@ static void sdWriterTask(void* param) {
     OdriveLogSample sample;
     // Wait up to 500 ms for an incoming sample
     if (xQueueReceive(s_logQueue, &sample, pdMS_TO_TICKS(500)) == pdTRUE) {
+      if (!s_expLogging) {
+        continue; // V4: sin experimento activo no se formatea ni se graba
+      }
       int n = snprintf(s_lineBuffer, sizeof(s_lineBuffer),
         "%lu,%llu,%.1f,%.2f,%.3f,%.3f,%.2f,%.2f,%.1f,%.3f,%u\n",
         (unsigned long)sample.t_ms,
@@ -65,8 +95,8 @@ static void sdWriterTask(void* param) {
                        (batchLen > 0 && (millis() - lastFlushMs >= 2000));
 
     if (shouldFlush) {
-      if (s_sdReady && !s_sdPaused) {
-        File f = SD.open("/odrive_log.csv", FILE_APPEND);
+      if (s_sdReady && !s_sdPaused && s_expLogging) {
+        File f = SD.open(s_logPath, FILE_APPEND);
         if (f) {
           if (f.size() == 0) {
             f.print("t_ms,rtc_timestamp_ms,target_rpm,actual_rpm,torque_nm,iq_a,ibus_a,vbus_v,fet_temp_c,do_mg_l,mode\n");
@@ -75,7 +105,7 @@ static void sdWriterTask(void* param) {
           f.flush();
           f.close();
         } else {
-          Serial.println("[SD Log] Failed to open /odrive_log.csv for append!");
+          Serial.printf("[SD Log] Failed to open %s for append!\n", s_logPath);
         }
       }
       batchLen = 0;
@@ -163,5 +193,9 @@ bool odriveSdLoggerIsReady() {
 void odriveSdLoggerFlush() {}
 
 void odriveSdLoggerPause(bool pause) {}
+
+void odriveSdLoggerSetFile(const char* filename83) { (void)filename83; }
+
+void odriveSdLoggerSetActive(bool active) { (void)active; }
 
 #endif

@@ -45,6 +45,10 @@ public:
   float getLastWaterTemp();
   unsigned long getLastPacketAgeMs(unsigned long nowMs);
 
+  // V4: la grabación SD y la ventana de alta frecuencia solo se habilitan durante un experimento.
+  void setExperimentLogging(bool active);
+  bool isExperimentLogging();
+
 private:
   portMUX_TYPE _mux = portMUX_INITIALIZER_UNLOCKED;
 
@@ -56,6 +60,7 @@ private:
   bool _hasFirstSample = false;
   bool _failsafeActive = false;
   bool _emergencyStopActive = false;
+  bool _experimentLogging = false;
 
   // PID State (accessed only from Core 1)
   float _integral = 0.0f;

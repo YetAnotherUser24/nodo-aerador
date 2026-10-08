@@ -63,8 +63,21 @@ void ControlEngine::clearEmergencyStop() {
   portEXIT_CRITICAL(&_mux);
 }
 
-void ControlEngine::updateProcessVariable(float measuredDoMgL, float waterTempC) {
+void ControlEngine::setExperimentLogging(bool active) {
   portENTER_CRITICAL(&_mux);
+  _experimentLogging = active;
+  portEXIT_CRITICAL(&_mux);
+}
+
+bool ControlEngine::isExperimentLogging() {
+  bool active;
+  portENTER_CRITICAL(&_mux);
+  active = _experimentLogging;
+  portEXIT_CRITICAL(&_mux);
+  return active;
+}
+
+void ControlEngine::updateProcessVariable(float measuredDoMgL, float waterTempC) {  portENTER_CRITICAL(&_mux);
   _lastMeasuredDo = measuredDoMgL;
   _lastWaterTemp = waterTempC;
   _lastPacketTimeMs = millis();

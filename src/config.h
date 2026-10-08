@@ -73,7 +73,7 @@
 #endif
 #endif
 
-#define SD_LOG_INTERVAL_MS      100UL    // 10 Hz SD sampling rate on Core 1
+#define SD_LOG_INTERVAL_MS      200UL    // 5 Hz SD sampling rate on Core 1 (V4 §2.2, solo en experimento)
 #define SD_LOG_QUEUE_SIZE       64       // RAM queue holding up to 6.4s of samples during flash erase
 #define SD_LOG_FLUSH_BATCH_SIZE 10       // Flush after 10 samples (every 1 second) or idle
 

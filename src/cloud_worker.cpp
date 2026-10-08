@@ -7,6 +7,7 @@
 #include <Preferences.h>
 #include <lwip/sockets.h>
 #include "odrive_sd_logger.h"
+#include "esp_now_rx.h"
 #if defined(OTA_ENABLED) && OTA_ENABLED
 #include <ArduinoOTA.h>
 #endif
@@ -25,6 +26,38 @@ static const uint8_t TELEMETRY_BATCH_SIZE = 25;
 static SharedTelemetry s_telemetryBatch[TELEMETRY_BATCH_SIZE];
 static uint8_t s_batchIndex = 0;
 static uint8_t s_batchCount = 0; // number of valid samples
+
+/* ---------------- V4: identidad de experimento y Reloj Maestro ---------------- */
+
+/** Experimento activo reportado por el orquestador; vacío => el backend lo resuelve. */
+static char s_activeExperimentId[40] = "";
+static portMUX_TYPE s_expMux = portMUX_INITIALIZER_UNLOCKED;
+
+static void setActiveExperimentId(const char* id) {
+  portENTER_CRITICAL(&s_expMux);
+  if (id != nullptr && id[0] != '\0') {
+    strncpy(s_activeExperimentId, id, sizeof(s_activeExperimentId) - 1);
+    s_activeExperimentId[sizeof(s_activeExperimentId) - 1] = '\0';
+  } else {
+    s_activeExperimentId[0] = '\0';
+  }
+  portEXIT_CRITICAL(&s_expMux);
+}
+
+static void getActiveExperimentId(char* out, size_t len) {
+  if (len == 0) return;
+  portENTER_CRITICAL(&s_expMux);
+  strncpy(out, s_activeExperimentId, len - 1);
+  out[len - 1] = '\0';
+  portEXIT_CRITICAL(&s_expMux);
+}
+
+/** ADR-3: extrapola epoch UTC ms desde el último paquete ESP-NOW del Reloj Maestro (od-logger). */
+static uint64_t currentRtcMs() {
+  LoggerSyncState sync = espNowGetLoggerState();
+  if (!sync.has_valid_packet) return 0;
+  return sync.rtc_timestamp_ms + (uint64_t)(millis() - sync.received_at_ms);
+}
 
 void updateSharedTelemetry(const SharedTelemetry& telem) {
   portENTER_CRITICAL(&s_telemMux);
@@ -244,7 +277,10 @@ static void sendTelemetryBatch(WiFiClientSecure& client, const SharedTelemetry* 
 
   StaticJsonDocument<4096> doc; // enough for 25 samples
   JsonObject root = doc.to<JsonObject>();
-  root["experiment_id"] = "backend_resolved"; // Next.js backend will resolve active experiment_id
+  char expIdBuf[40];
+  getActiveExperimentId(expIdBuf, sizeof(expIdBuf));
+  // Si el orquestador ya fijó un experimento se reporta explícito; de lo contrario lo resuelve Next.js.
+  root["experiment_id"] = (expIdBuf[0] != '\0') ? expIdBuf : "backend_resolved";
   JsonArray samples = root.createNestedArray("payload");
   for (uint8_t i = 0; i < count; ++i) {
     JsonObject obj = samples.createNestedObject();
@@ -253,6 +289,8 @@ static void sendTelemetryBatch(WiFiClientSecure& client, const SharedTelemetry* 
     obj["is_on"] = batch[i].is_on;
     obj["speed_percent"] = round(speedPercent * 10.0f) / 10.0f;
     obj["pwm_us"] = (int)batch[i].actual_rpm;
+    obj["actual_rpm"] = round(batch[i].actual_rpm * 10.0f) / 10.0f;
+    obj["target_rpm"] = round(batch[i].target_rpm * 10.0f) / 10.0f;
     obj["voltage_v"] = round(batch[i].vbus_voltage * 100.0f) / 100.0f;
     obj["current_a"] = round(avgIbus * 100.0f) / 100.0f;   // averaged over batch
     obj["power_w"]   = round(avgPower * 10.0f) / 10.0f;    // averaged over batch
@@ -292,9 +330,12 @@ static void acknowledgeCommand(WiFiClientSecure& client, const String& cmdId, bo
   http.addHeader("X-Device-Key", AQUACONTROL_DEVICE_KEY);
   http.setTimeout(4000);
 
-  StaticJsonDocument<150> doc;
+  StaticJsonDocument<200> doc;
   doc["success"] = success;
   doc["actual_speed_percent"] = speedPercent;
+  // V4 §2.2: instante exacto de ejecución (epoch UTC ms) para anular la latencia de red al graficar.
+  uint64_t rtc = currentRtcMs();
+  if (rtc > 0) doc["rtc_timestamp_ms"] = rtc;
 
   String body;
   serializeJson(doc, body);
@@ -345,11 +386,16 @@ static bool pollPendingCommands(WiFiClientSecure& client) {
     bool isEmergency = false;
     bool isStop = false;
     bool isThrottle = false;
-    bool isConfig = false;
+    // V4: intención semántica transportada en payload.action (el CHECK de la BD limita command_type a 5 valores)
+    bool isStateAction = false;
+    bool isModeAction = false;
+    bool isForceOn = false;
+    bool isForceOff = false;
+    String stateStr, expIdStr, csvStr;
     ControlConfig cfg = s_engine->getConfig();
 
     {
-      StaticJsonDocument<512> doc;
+      StaticJsonDocument<768> doc;
       DeserializationError err = deserializeJson(doc, payload);
       if (!err && (doc["has_command"] == true || doc["has_command"].as<bool>())) {
         JsonObject cmd = doc["command"];
@@ -358,18 +404,24 @@ static bool pollPendingCommands(WiFiClientSecure& client) {
         speedPct = cmd["speed_percent"].as<float>();
         hasCmd = true;
 
-        if (cmdType == "emergency_stop") {
-          isEmergency = true;
-        } else if (cmdType == "stop") {
-          isStop = true;
-        } else if (cmdType == "start" || cmdType == "set_speed") {
-          isThrottle = true;
-          if (cmdType == "start" && speedPct <= 0.0f) {
-            speedPct = (cfg.manual_throttle_pct > 0.0f) ? cfg.manual_throttle_pct : 20.0f;
-          }
-        } else if (cmdType == "set_mode" || cmdType == "set_config") {
-          isConfig = true;
-          JsonObject p = cmd["payload"];
+        JsonObject p = cmd["payload"];
+        String action = "";
+        if (!p.isNull() && p["action"].is<const char*>()) action = p["action"].as<String>();
+        if (action.length() == 0) action = cmdType;
+
+        isStateAction = (action == "set_state" || action == "start_experiment" || action == "stop_experiment");
+        isModeAction = (action == "set_mode" || action == "set_config" ||
+                        (!p.isNull() && (p.containsKey("mode") || p.containsKey("kp") ||
+                                         p.containsKey("ki") || p.containsKey("kd"))));
+        isForceOn = (action == "force_on");
+        isForceOff = (action == "force_off");
+
+        if (isStateAction) {
+          stateStr = p["state"].is<const char*>() ? p["state"].as<String>() : String("");
+          expIdStr = p["experiment_id"].is<const char*>() ? p["experiment_id"].as<String>() : String("");
+          csvStr   = p["csv_filename"].is<const char*>() ? p["csv_filename"].as<String>() : String("");
+          if (action == "start_experiment") stateStr = "ACTIVE_EXPERIMENT";
+        } else if (isModeAction) {
           if (!p.isNull()) {
             if (p.containsKey("mode")) {
               String m = p["mode"].as<String>();
@@ -383,6 +435,15 @@ static bool pollPendingCommands(WiFiClientSecure& client) {
             if (p.containsKey("kd")) cfg.kd = p["kd"].as<float>();
             if (p.containsKey("manual_throttle_pct")) cfg.manual_throttle_pct = p["manual_throttle_pct"].as<float>();
           }
+        } else if (action == "emergency_stop" || cmdType == "emergency_stop") {
+          isEmergency = true;
+        } else if (action == "stop" || cmdType == "stop") {
+          isStop = true;
+        } else if (action == "start" || action == "set_speed" || cmdType == "start" || cmdType == "set_speed") {
+          isThrottle = true;
+          if ((action == "start" || cmdType == "start") && speedPct <= 0.0f) {
+            speedPct = (cfg.manual_throttle_pct > 0.0f) ? cfg.manual_throttle_pct : 20.0f;
+          }
         }
       } else if (err) {
         remoteLogPrintf("[Cloud] Command JSON parse error: %s\n", err.c_str());
@@ -392,7 +453,38 @@ static bool pollPendingCommands(WiFiClientSecure& client) {
     if (hasCmd) {
       remoteLogPrintf("[Cloud] Executing command '%s' (speed: %.1f%%)\n", cmdType.c_str(), speedPct);
 
-      if (isEmergency) {
+      if (isStateAction) {
+        // Máquina de estados del orquestador: IDLE | ACTIVE_EXPERIMENT | MANUAL_OVERRIDE
+        bool activate = (stateStr == "ACTIVE_EXPERIMENT");
+        if (activate) {
+          setActiveExperimentId(expIdStr.c_str());
+          if (csvStr.length() > 0) odriveSdLoggerSetFile(csvStr.c_str());
+          odriveSdLoggerSetActive(true);
+          s_engine->setExperimentLogging(true);
+          remoteLogPrintf("[Cloud] Experiment logging ENABLED (id=%s)\n", expIdStr.c_str());
+        } else {
+          s_engine->setExperimentLogging(false);
+          odriveSdLoggerSetActive(false);
+          setActiveExperimentId("");
+          remoteLogPrintf("[Cloud] Experiment logging DISABLED (state=%s)\n", stateStr.c_str());
+        }
+        if (stateStr == "MANUAL_OVERRIDE") {
+          // Recetas abortadas: el operador humano asume el control directo.
+          s_engine->setManualThrottle(0.0f);
+        }
+        acknowledgeCommand(client, cmdId, true, 0.0f);
+      } else if (isModeAction) {
+        s_engine->configure(cfg);
+        savePersistedConfig(cfg);
+        acknowledgeCommand(client, cmdId, true, speedPct);
+      } else if (isForceOn) {
+        float pct = (cfg.manual_throttle_pct > 0.0f) ? cfg.manual_throttle_pct : 50.0f;
+        s_engine->setManualThrottle(pct);
+        acknowledgeCommand(client, cmdId, true, pct);
+      } else if (isForceOff) {
+        s_engine->setManualThrottle(0.0f);
+        acknowledgeCommand(client, cmdId, true, 0.0f);
+      } else if (isEmergency) {
         s_engine->triggerEmergencyStop();
         acknowledgeCommand(client, cmdId, true, 0.0f);
       } else if (isStop) {
@@ -400,10 +492,6 @@ static bool pollPendingCommands(WiFiClientSecure& client) {
         acknowledgeCommand(client, cmdId, true, 0.0f);
       } else if (isThrottle) {
         s_engine->setManualThrottle(speedPct);
-        acknowledgeCommand(client, cmdId, true, speedPct);
-      } else if (isConfig) {
-        s_engine->configure(cfg);
-        savePersistedConfig(cfg);
         acknowledgeCommand(client, cmdId, true, speedPct);
       } else if (cmdType == "reboot") {
         acknowledgeCommand(client, cmdId, true, 0.0f);
@@ -506,18 +594,21 @@ static void cloudWorkerTask(void* pvParameters) {
         lastWifiRetry = millis();
       }
       
-      // If auto-reconnect fails for 30s, force a clean restart of the WiFi stack
+      // If auto-reconnect fails for 30s, force a clean restart of the WiFi stack.
+      // NOTA: se preserva el modo STA (disconnect(false,false)) para no derribar la capa
+      // ESP-NOW, de la que depende el lazo de control de seguridad (invariante del sistema).
       if (millis() - lastWifiRetry > 30000) {
         Serial.printf("[Cloud Worker] WiFi stuck. Forcing restart to '%s'...\n", WIFI_SSID);
-        WiFi.disconnect(true);
+        WiFi.mode(WIFI_STA);
+        WiFi.disconnect(false, false);
         vTaskDelay(pdMS_TO_TICKS(100));
         WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
         lastWifiRetry = millis();
       }
     } else {
       if (!wasConnected) {
-        Serial.printf("[Cloud Worker] WiFi connected. IP: %s (RSSI: %d dBm)\n",
-                      WiFi.localIP().toString().c_str(), WiFi.RSSI());
+        Serial.printf("[Cloud Worker] WiFi connected. IP: %s (RSSI: %d dBm, ch: %u)\n",
+                      WiFi.localIP().toString().c_str(), WiFi.RSSI(), (unsigned)WiFi.channel());
         digitalWrite(LED_BUILTIN, LOW); // Turn ON LED
         wasConnected = true;
       }
