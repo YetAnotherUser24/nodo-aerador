@@ -188,7 +188,7 @@ float ControlEngine::computeOutputRpm(unsigned long nowMs) {
 
   float outputRpm = 0.0f;
   if (cfg.mode == MODE_PID) {
-    outputRpm = runPid(error, dt, cfg);
+    outputRpm = runPid(error, dError, dt, cfg);
   } else if (cfg.mode == MODE_FUZZY) {
     outputRpm = runFuzzy(error, dError, cfg);
   }
@@ -196,7 +196,14 @@ float ControlEngine::computeOutputRpm(unsigned long nowMs) {
   return constrain(outputRpm, cfg.min_rpm, cfg.max_rpm);
 }
 
-float ControlEngine::runPid(float error, float dt, const ControlConfig& cfg) {
+/**
+ * PID con anti-windup por saturación de la integral (I_max = max_rpm / Ki).
+ *
+ * `dError` llega ya calculado con el `_prevError` ANTERIOR. Es imprescindible pasarlo como
+ * parámetro: si se recalculara aquí dentro leyendo `_prevError`, el término derivativo sería
+ * siempre cero, porque `computeOutputRpm()` actualiza `_prevError` antes de invocar al PID.
+ */
+float ControlEngine::runPid(float error, float dError, float dt, const ControlConfig& cfg) {
   float pTerm = cfg.kp * error;
 
   // Integral with anti-windup clamping
@@ -205,8 +212,8 @@ float ControlEngine::runPid(float error, float dt, const ControlConfig& cfg) {
   _integral = constrain(_integral, -maxIntegral, maxIntegral);
   float iTerm = cfg.ki * _integral;
 
-  // Filtered derivative
-  float dTerm = cfg.kd * (error - _prevError) / (dt > 0.001f ? dt : 0.05f);
+  // Derivative: usa el dError real (antes quedaba anulado por el orden de actualización)
+  float dTerm = cfg.kd * dError;
 
   return pTerm + iTerm + dTerm;
 }

@@ -67,6 +67,6 @@ private:
   float _prevError = 0.0f;
   unsigned long _lastComputeMs = 0;
 
-  float runPid(float error, float dt, const ControlConfig& cfg);
+  float runPid(float error, float dError, float dt, const ControlConfig& cfg);
   float runFuzzy(float error, float dError, const ControlConfig& cfg);
 };
