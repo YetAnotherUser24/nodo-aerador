@@ -391,7 +391,14 @@ static bool pollPendingCommands(WiFiClientSecure& client) {
     bool isModeAction = false;
     bool isForceOn = false;
     bool isForceOff = false;
+    bool isClearEstop = false;
     String stateStr, expIdStr, csvStr;
+    // Receta de motor transportada por `set_state` (resuelta en el servidor desde el registro
+    // de experimentos). Antes el ODrive habilitaba el log SD pero NUNCA se armaba, así que el
+    // motor quedaba indefinidamente en 0 RPM al iniciar un experimento.
+    String motorModeStr = "";
+    float motorTargetDo = -1.0f;
+    float motorThrottlePct = -1.0f;
     ControlConfig cfg = s_engine->getConfig();
 
     {
@@ -415,12 +422,17 @@ static bool pollPendingCommands(WiFiClientSecure& client) {
                                          p.containsKey("ki") || p.containsKey("kd"))));
         isForceOn = (action == "force_on");
         isForceOff = (action == "force_off");
+        isClearEstop = (action == "clear_estop" || action == "resume");
 
         if (isStateAction) {
           stateStr = p["state"].is<const char*>() ? p["state"].as<String>() : String("");
           expIdStr = p["experiment_id"].is<const char*>() ? p["experiment_id"].as<String>() : String("");
           csvStr   = p["csv_filename"].is<const char*>() ? p["csv_filename"].as<String>() : String("");
           if (action == "start_experiment") stateStr = "ACTIVE_EXPERIMENT";
+
+          motorModeStr = p["motor_mode"].is<const char*>() ? p["motor_mode"].as<String>() : String("");
+          if (p.containsKey("motor_target_do")) motorTargetDo = p["motor_target_do"].as<float>();
+          if (p.containsKey("motor_throttle_pct")) motorThrottlePct = p["motor_throttle_pct"].as<float>();
         } else if (isModeAction) {
           if (!p.isNull()) {
             if (p.containsKey("mode")) {
@@ -468,10 +480,36 @@ static bool pollPendingCommands(WiFiClientSecure& client) {
           setActiveExperimentId("");
           remoteLogPrintf("[Cloud] Experiment logging DISABLED (state=%s)\n", stateStr.c_str());
         }
-        if (stateStr == "MANUAL_OVERRIDE") {
-          // Recetas abortadas: el operador humano asume el control directo.
-          s_engine->setManualThrottle(0.0f);
+
+        // Armado del actuador. Se usa `configure()` y no `setManualThrottle()` a propósito:
+        // `setManualThrottle()` limpia el latch de emergencia, y arrancar un experimento NO debe
+        // liberar un E-Stop de forma implícita. Si el latch está activo el motor permanece en 0
+        // (seguro) y hay que liberarlo de forma explícita con `clear_estop` (botón REANUDAR).
+        if (activate && motorModeStr == "pid") {
+          ControlConfig m = s_engine->getConfig();
+          m.mode = MODE_PID;
+          if (motorTargetDo >= 0.0f) m.target_do_mg_l = motorTargetDo;
+          s_engine->configure(m);
+          savePersistedConfig(m);
+          remoteLogPrintf("[Cloud] Motor ARMED in PID (setpoint=%.3f mg/L)\n",
+                          m.target_do_mg_l);
+        } else if (activate && motorModeStr == "manual") {
+          ControlConfig m = s_engine->getConfig();
+          m.mode = MODE_MANUAL;
+          if (motorThrottlePct >= 0.0f) m.manual_throttle_pct = constrain(motorThrottlePct, 0.0f, 100.0f);
+          s_engine->configure(m);
+          savePersistedConfig(m);
+          remoteLogPrintf("[Cloud] Motor ARMED in MANUAL (%.1f%% -> ~%.0f RPM)\n",
+                          m.manual_throttle_pct, (m.manual_throttle_pct / 100.0f) * m.max_rpm);
+        } else {
+          // IDLE, MANUAL_OVERRIDE o receta sin actuador: actuadores desactivados (ADD 2.1/2.3).
+          ControlConfig m = s_engine->getConfig();
+          m.mode = MODE_MANUAL;
+          m.manual_throttle_pct = 0.0f;
+          s_engine->configure(m);
+          if (!activate) remoteLogPrintf("[Cloud] Motor set to 0 RPM (state=%s)\n", stateStr.c_str());
         }
+
         acknowledgeCommand(client, cmdId, true, 0.0f);
       } else if (isModeAction) {
         s_engine->configure(cfg);
@@ -483,6 +521,11 @@ static bool pollPendingCommands(WiFiClientSecure& client) {
         acknowledgeCommand(client, cmdId, true, pct);
       } else if (isForceOff) {
         s_engine->setManualThrottle(0.0f);
+        acknowledgeCommand(client, cmdId, true, 0.0f);
+      } else if (isClearEstop) {
+        // Única vía explícita de liberar el latch de emergencia (botón REANUDAR del dashboard).
+        s_engine->clearEmergencyStop();
+        remoteLogPrintf("[Cloud] Emergency stop latch CLEARED by operator\n");
         acknowledgeCommand(client, cmdId, true, 0.0f);
       } else if (isEmergency) {
         s_engine->triggerEmergencyStop();
