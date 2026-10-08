@@ -10,6 +10,7 @@
  */
 
 #include <Arduino.h>
+#include <WiFi.h>
 #include "config.h"
 #include "odrive_uart.h"
 #include "control_engine.h"
@@ -149,8 +150,8 @@ void loop() {
 
     updateSharedTelemetry(sTelem);
 
-    // D. High-frequency MicroSD logging (10 Hz = every 100 ms)
-    if (now - lastSdLogMs >= SD_LOG_INTERVAL_MS) {
+    // D. MicroSD logging a 5 Hz SOLO durante un experimento activo (V4 §2.1/§2.2)
+    if (controlEngine.isExperimentLogging() && now - lastSdLogMs >= SD_LOG_INTERVAL_MS) {
       lastSdLogMs = now;
 
       OdriveLogSample sample;
@@ -176,7 +177,7 @@ void loop() {
       const char* modeStr = (cfg.mode == MODE_PID) ? "PID" :
                             ((cfg.mode == MODE_FUZZY) ? "FUZZY" : "MANUAL");
 
-      remoteLogPrintf("[CTRL Core 1] Mode: %s | DO: %.2f mg/L | Target: %.0f RPM | Act: %.0f RPM | %.1fV %.2fA (%.1fW) | Iq: %.3fA%s%s%s%s\n",
+      remoteLogPrintf("[CTRL Core 1] Mode: %s | DO: %.2f mg/L | Target: %.0f RPM | Act: %.0f RPM | %.1fV %.2fA (%.1fW) | Iq: %.3fA | ch=%u espnow_rx=%u%s%s%s%s%s\n",
                     modeStr,
                     controlEngine.getLastMeasuredDo(),
                     targetRpm,
@@ -185,10 +186,13 @@ void loop() {
                     cachedODriveTelem.ibus_current,
                     cachedODriveTelem.power_watts,
                     cachedODriveTelem.torque_estimate,
+                    (unsigned)WiFi.channel(),
+                    (unsigned)sync.packet_count,
                     controlEngine.isFailsafeActive() ? " [FAILSAFE]" : "",
                     controlEngine.isEmergencyStopActive() ? " [EMERGENCY STOP]" : "",
                     (!cachedODriveTelem.is_armed) ? " [DISARMED]" : "",
-                    (cachedODriveTelem.axis_error != 0) ? " [ERROR]" : "");
+                    (cachedODriveTelem.axis_error != 0) ? " [ERROR]" : "",
+                    (sync.has_valid_packet && !sync.sample_valid) ? " [OD INVALID]" : "");
     }
   }
 

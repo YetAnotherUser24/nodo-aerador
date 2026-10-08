@@ -3,6 +3,13 @@
 
 #define AQUACONTROL_PACKET_MAGIC 0x41515541 // ASCII "AQUA"
 
+/*
+ * Espejo de los bits `STATUS_*` de od-logger/src/n_logger_config.h. El receptor debe respetarlos:
+ * un bit activo significa que esa medición NO es válida y no debe entrar al lazo de control.
+ * (El logger transmite DO=0.000 con este bit activo cuando la lectura Modbus falla.)
+ */
+#define AQUACONTROL_STATUS_BIT_OD_SENSOR 22
+
 #pragma pack(push, 1)
 struct OdTelemetryPacket {
   uint32_t magic;           // AQUACONTROL_PACKET_MAGIC

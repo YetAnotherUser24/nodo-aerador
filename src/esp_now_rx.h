@@ -10,6 +10,8 @@ struct LoggerSyncState {
   float last_saturation_pct = 0.0f;
   float last_battery_v = 0.0f;
   uint32_t received_at_ms = 0;    // Local controller millis() when packet arrived
+  uint32_t packet_count = 0;      // Total valid packets accepted from the OD-Logger
+  bool sample_valid = false;      // false = el logger marcó la medición como fallida (status_flags)
   bool has_valid_packet = false;
 };
 

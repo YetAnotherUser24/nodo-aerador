@@ -21,6 +21,11 @@ static void onDataRecv(const uint8_t *mac, const uint8_t *data, int len) {
     return;
   }
 
+  // El logger marca con un bit de `status_flags` una medición fallida (sensor Modbus sin respuesta).
+  // Esa muestra NO es un 0 mg/L real: aceptarla haría que el PID persiguiera un error enorme.
+  const bool sampleValid =
+      (pkt->status_flags & (1UL << AQUACONTROL_STATUS_BIT_OD_SENSOR)) == 0;
+
   portENTER_CRITICAL(&s_syncMux);
   s_loggerSyncState.rtc_timestamp_ms = pkt->rtc_timestamp_ms;
   s_loggerSyncState.sequence = pkt->sequence;
@@ -29,10 +34,14 @@ static void onDataRecv(const uint8_t *mac, const uint8_t *data, int len) {
   s_loggerSyncState.last_saturation_pct = pkt->oxygen_saturation;
   s_loggerSyncState.last_battery_v = pkt->battery_voltage;
   s_loggerSyncState.received_at_ms = millis();
+  s_loggerSyncState.packet_count++;
+  s_loggerSyncState.sample_valid = sampleValid;
   s_loggerSyncState.has_valid_packet = true;
   portEXIT_CRITICAL(&s_syncMux);
 
-  if (s_controlEngine != nullptr) {
+  // Al no refrescar la variable de proceso, el watchdog de 35 s detiene el motor en lugar de
+  // girar a fondo contra un DO inválido. Es el comportamiento seguro ante falla de sensor.
+  if (s_controlEngine != nullptr && sampleValid) {
     s_controlEngine->updateProcessVariable(pkt->dissolved_oxygen, pkt->water_temperature);
   }
 }
@@ -63,5 +72,9 @@ bool espNowRxInit(ControlEngine& engine) {
 #endif
 
   Serial.println("[ESP-NOW RX] Receiver listening for DO packets.");
+  // El receptor NO registra peers: recibe en el canal actual del STA. Si el canal reportado aquí
+  // no coincide con el del od-logger, los paquetes nunca llegarán (ambos deben seguir al mismo AP).
+  Serial.printf("[ESP-NOW RX] Ready. WiFi ch=%u | packet=%u bytes (peer-less receive, follows the AP channel).\n",
+                (unsigned)WiFi.channel(), (unsigned)sizeof(OdTelemetryPacket));
   return true;
 }
