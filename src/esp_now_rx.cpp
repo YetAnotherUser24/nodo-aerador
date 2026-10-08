@@ -22,7 +22,7 @@ static void onDataRecv(const uint8_t *mac, const uint8_t *data, int len) {
   }
 
   portENTER_CRITICAL(&s_syncMux);
-  s_loggerSyncState.rtc_timestamp_sec = pkt->timestamp_sec;
+  s_loggerSyncState.rtc_timestamp_ms = pkt->rtc_timestamp_ms;
   s_loggerSyncState.sequence = pkt->sequence;
   s_loggerSyncState.last_do_mg_l = pkt->dissolved_oxygen;
   s_loggerSyncState.last_water_temp_c = pkt->water_temperature;

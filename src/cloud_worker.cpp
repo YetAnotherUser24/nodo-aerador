@@ -20,8 +20,8 @@ static portMUX_TYPE s_telemMux = portMUX_INITIALIZER_UNLOCKED;
 static ControlEngine* s_engine = nullptr;
 static Preferences s_prefs;
 
-// Batch telemetry buffer (9 samples per push)
-static const uint8_t TELEMETRY_BATCH_SIZE = 9;
+// Batch telemetry buffer (25 samples per push for 5Hz over 5s)
+static const uint8_t TELEMETRY_BATCH_SIZE = 25;
 static SharedTelemetry s_telemetryBatch[TELEMETRY_BATCH_SIZE];
 static uint8_t s_batchIndex = 0;
 static uint8_t s_batchCount = 0; // number of valid samples
@@ -242,8 +242,10 @@ static void sendTelemetryBatch(WiFiClientSecure& client, const SharedTelemetry* 
   avgIbus  /= count;
   avgPower /= count;
 
-  StaticJsonDocument<3000> doc; // enough for 9 samples
-  JsonArray samples = doc.createNestedArray("samples");
+  StaticJsonDocument<4096> doc; // enough for 25 samples
+  JsonObject root = doc.to<JsonObject>();
+  root["experiment_id"] = "backend_resolved"; // Next.js backend will resolve active experiment_id
+  JsonArray samples = root.createNestedArray("payload");
   for (uint8_t i = 0; i < count; ++i) {
     JsonObject obj = samples.createNestedObject();
     float speedPercent = (batch[i].actual_rpm / MAX_MOTOR_RPM) * 100.0f;
@@ -257,6 +259,7 @@ static void sendTelemetryBatch(WiFiClientSecure& client, const SharedTelemetry* 
     obj["torque_nm"] = round(batch[i].torque_estimate * 10000.0f) / 10000.0f;
     obj["iq_a"] = round(batch[i].iq_measured * 10000.0f) / 10000.0f;
     obj["status_code"] = batch[i].status_code;
+    obj["rtc_timestamp_ms"] = batch[i].rtc_timestamp_ms;
   }
 
   String body;

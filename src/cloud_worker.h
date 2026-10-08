@@ -17,6 +17,7 @@ struct SharedTelemetry {
   uint8_t control_mode = 0; // 0=PID, 1=Fuzzy, 2=Manual
   bool failsafe_active = false;
   uint32_t status_code = 0;
+  uint64_t rtc_timestamp_ms = 0;
 };
 
 void updateSharedTelemetry(const SharedTelemetry& telem);

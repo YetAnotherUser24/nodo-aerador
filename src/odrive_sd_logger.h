@@ -14,7 +14,7 @@
 
 struct OdriveLogSample {
   uint32_t t_ms;           // Controller local millis()
-  uint32_t logger_rtc_sec; // DS3231 RTC epoch from od-logger (or 0 if pending)
+  uint64_t rtc_timestamp_ms; // DS3231 RTC ms from od-logger (or 0 if pending)
   float target_rpm;        // Commanded target speed
   float actual_rpm;        // Measured motor speed
   float torque_nm;         // Estimated mechanical torque

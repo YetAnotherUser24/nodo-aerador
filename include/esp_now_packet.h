@@ -7,7 +7,7 @@
 struct OdTelemetryPacket {
   uint32_t magic;           // AQUACONTROL_PACKET_MAGIC
   uint32_t sequence;        // Incremental sequence counter
-  uint32_t timestamp_sec;   // Seconds since 2000 (RTC)
+  uint64_t rtc_timestamp_ms; // Milliseconds since 2000 (RTC + millis() offset)
   float dissolved_oxygen;   // mg/L (e.g. 7.850)
   float water_temperature;  // °C (e.g. 23.45)
   float oxygen_saturation;  // % Sat (e.g. 98.20)

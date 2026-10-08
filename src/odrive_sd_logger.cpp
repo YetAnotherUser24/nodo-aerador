@@ -39,9 +39,9 @@ static void sdWriterTask(void* param) {
     // Wait up to 500 ms for an incoming sample
     if (xQueueReceive(s_logQueue, &sample, pdMS_TO_TICKS(500)) == pdTRUE) {
       int n = snprintf(s_lineBuffer, sizeof(s_lineBuffer),
-        "%lu,%lu,%.1f,%.2f,%.3f,%.3f,%.2f,%.2f,%.1f,%.3f,%u\n",
+        "%lu,%llu,%.1f,%.2f,%.3f,%.3f,%.2f,%.2f,%.1f,%.3f,%u\n",
         (unsigned long)sample.t_ms,
-        (unsigned long)sample.logger_rtc_sec,
+        (unsigned long long)sample.rtc_timestamp_ms,
         sample.target_rpm,
         sample.actual_rpm,
         sample.torque_nm,
@@ -69,7 +69,7 @@ static void sdWriterTask(void* param) {
         File f = SD.open("/odrive_log.csv", FILE_APPEND);
         if (f) {
           if (f.size() == 0) {
-            f.print("t_ms,logger_rtc_sec,target_rpm,actual_rpm,torque_nm,iq_a,ibus_a,vbus_v,fet_temp_c,do_mg_l,mode\n");
+            f.print("t_ms,rtc_timestamp_ms,target_rpm,actual_rpm,torque_nm,iq_a,ibus_a,vbus_v,fet_temp_c,do_mg_l,mode\n");
           }
           f.write((const uint8_t*)s_batchBuffer, batchLen);
           f.flush();

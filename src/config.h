@@ -9,7 +9,7 @@
 
 /* ----------------------- AquaControl Cloud ----------------------- */
 #define AQUACONTROL_HOST        "tesisutec.vercel.app"
-#define AQUACONTROL_MOTOR_PATH  "/api/telemetry/motor"
+#define AQUACONTROL_MOTOR_PATH  "/api/telemetry/motor_bulk"
 #define AQUACONTROL_PENDING_CMD "/api/commands/pending"
 #define AQUACONTROL_ACK_PATH    "/api/commands" // + "/[id]/acknowledge"
 #define AQUACONTROL_DEVICE_KEY  "ESP32_ODRIVE"
@@ -57,12 +57,12 @@
 
 /* ------------------------ Timing Intervals ----------------------- */
 #define CONTROL_LOOP_INTERVAL_MS 50UL         // 20 Hz deterministic loop on Core 1
-#define TELEMETRY_PUSH_INTERVAL_MS 3000UL     // 3-second cloud push on Core 0
+#define TELEMETRY_PUSH_INTERVAL_MS 5000UL     // 5-second cloud push on Core 0
 #define COMMAND_POLL_INTERVAL_MS   1500UL     // 1.5-second cloud command check in Auto mode (PID / Fuzzy)
 #define COMMAND_POLL_INTERVAL_MANUAL_MS 1000UL // 1-second cloud command check in Manual mode
 
 // New: telemetry sample interval (~3 Hz) to build batch of 9 samples per push
-#define TELEMETRY_SAMPLE_INTERVAL_MS 350UL 
+#define TELEMETRY_SAMPLE_INTERVAL_MS 200UL // 5 Hz sample interval to build batch of 25 samples 
 
 /* -------------------- MicroSD Card Logger ------------------------ */
 #ifndef SD_LOG_ENABLED

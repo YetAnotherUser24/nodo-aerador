@@ -124,8 +124,15 @@ void loop() {
       odrive.setVelocityRpm(targetRpm);
     }
 
+    const LoggerSyncState& sync = espNowGetLoggerState();
+
     // C. Build shared telemetry snapshot for Core 0 cloud worker
     SharedTelemetry sTelem;
+    if (sync.has_valid_packet) {
+      sTelem.rtc_timestamp_ms = sync.rtc_timestamp_ms + (now - sync.received_at_ms);
+    } else {
+      sTelem.rtc_timestamp_ms = 0; // Will be ignored by backend if 0
+    }
     sTelem.target_rpm = targetRpm;
     sTelem.actual_rpm = cachedODriveTelem.actual_rpm;
     sTelem.vbus_voltage = cachedODriveTelem.vbus_voltage;
@@ -145,11 +152,10 @@ void loop() {
     // D. High-frequency MicroSD logging (10 Hz = every 100 ms)
     if (now - lastSdLogMs >= SD_LOG_INTERVAL_MS) {
       lastSdLogMs = now;
-      const LoggerSyncState& sync = espNowGetLoggerState();
 
       OdriveLogSample sample;
       sample.t_ms = now;
-      sample.logger_rtc_sec = sync.rtc_timestamp_sec;
+      sample.rtc_timestamp_ms = sTelem.rtc_timestamp_ms;
       sample.target_rpm = targetRpm;
       sample.actual_rpm = cachedODriveTelem.actual_rpm;
       sample.torque_nm = cachedODriveTelem.torque_estimate;
