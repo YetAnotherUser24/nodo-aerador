@@ -151,8 +151,10 @@ Abre el archivo [src/config.h](file:///src/config.h) y edita las siguientes lín
 | **Mismo ESP32-S3, por WiFi** | `esp32-s3-ota` | Flasheo inalámbrico en `aquacontrol-odrive.local` |
 | **ESP32-S3 sin ODrive** | `esp32-s3-virtual` | Simula motor y física para probar la web |
 | **ESP32 DevKit V1 / NodeMCU** | `esp32dev` | Conexión física por UART al ODrive S1 |
+| **ESP32 DevKit, por WiFi** | `esp32dev-ota` | Flasheo inalámbrico en `aquacontrol-odrive.local` |
 | **ESP32 DevKit, sin ODrive** | `esp32dev-virtual` | Simulador sobre la placa clásica |
 | **LilyGO T3 LoRa32 + HAT** | `lora32` | Variante con HAT de tesis y MicroSD |
+| **LilyGO T3 LoRa32, por WiFi** | `lora32-ota` | Flasheo inalámbrico en `aquacontrol-odrive.local` |
 | **LilyGO T3 LoRa32, sin ODrive** | `lora32-virtual` | LilyGO en modo simulador |
 | **Verificación de telemetría por USB** | `verify` | Lee las 6 variables del ODrive y las imprime como CSV, sin WiFi ni nube |
 | **Consola de calibración de banco** | `uart-test` | Consola interactiva UART para configurar el ODrive |
