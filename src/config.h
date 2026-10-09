@@ -74,7 +74,7 @@
 
 /* -------------------- MicroSD Card Logger ------------------------ */
 #ifndef SD_LOG_ENABLED
-#if defined(BOARD_LILYGO_LORA32) && (!defined(ODRIVE_VIRTUAL) || !ODRIVE_VIRTUAL)
+#if defined(BOARD_LILYGO_LORA32) && (!defined(AERADOR_VIRTUAL) || !AERADOR_VIRTUAL)
 #define SD_LOG_ENABLED          1        // Enable high-speed SD logging on LilyGO hardware
 #else
 #define SD_LOG_ENABLED          1
@@ -85,14 +85,16 @@
 #define SD_LOG_QUEUE_SIZE       64       // RAM queue holding up to 6.4s of samples during flash erase
 #define SD_LOG_FLUSH_BATCH_SIZE 10       // Flush after 10 samples (every 1 second) or idle
 
-/* ----------------- Virtual ODrive Simulator Settings ------------- */
-#ifndef ODRIVE_VIRTUAL
-#define ODRIVE_VIRTUAL          0        // 1 = Simulation mode (no physical ODrive / no ESP-NOW), 0 = Real hardware
+/* ----------------- Virtual motor bus settings --------------------- */
+// 1 = build with the simulated motor bus (no physical ODrive, no ESP-NOW).
+// Select it with the `esp32-s3-virtual` / `esp32dev-virtual` / `lora32-virtual` envs.
+#ifndef AERADOR_VIRTUAL
+#define AERADOR_VIRTUAL         0
 #endif
 #define VIRTUAL_VBUS_NOMINAL    24.0f    // Simulated nominal DC bus voltage (V)
-#define VIRTUAL_RAMP_RPM_PER_S  600.0f   // Simulated acceleration ramp rate: 10 rev/s^2 (600 RPM/s)
+#define VIRTUAL_RAMP_RPM_PER_S  600.0f   // Simulated velocity envelope reference (RPM/s)
 #define VIRTUAL_IBUS_IDLE       0.15f    // Quiescent driver current (A)
-#define VIRTUAL_IBUS_MAX_LOAD   9.5f     // Max continuous motor current at 3500 RPM under water load (A)
+#define VIRTUAL_IBUS_MAX_LOAD   9.5f     // Max continuous motor current at MAX_MOTOR_RPM (A)
 
 /* ------------------------ Over-The-Air (OTA) --------------------- */
 #ifndef OTA_ENABLED

@@ -12,25 +12,15 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include "config.h"
-#include "odrive_uart.h"
+#include "motor_bus.h"
 #include "control_engine.h"
 #include "esp_now_rx.h"
 #include "cloud_worker.h"
 #include "odrive_sd_logger.h"
 
-#if defined(ODRIVE_VIRTUAL) && ODRIVE_VIRTUAL
-#include "odrive_virtual.h"
-static ODriveVirtual odrive(VIRTUAL_VBUS_NOMINAL, VIRTUAL_RAMP_RPM_PER_S);
-#else
-// Instantiate ODrive UART driver on Serial2 (or Serial1 on S3)
-#if CONFIG_IDF_TARGET_ESP32S3
-static HardwareSerial ODriveSerial(1);
-#else
-static HardwareSerial ODriveSerial(2);
-#endif
-
-static ODriveUART odrive(ODriveSerial, ODRIVE_SERIAL_RX_PIN, ODRIVE_SERIAL_TX_PIN, ODRIVE_BAUD_RATE);
-#endif
+// The motor is reached exclusively through the injected bus. In real builds it wraps
+// ODriveUART; in virtual builds it wraps the simulated motor. Control code is identical.
+static IMotorBus& odrive = motorBus();
 
 static ControlEngine controlEngine;
 
@@ -38,23 +28,23 @@ static unsigned long lastLoopMs = 0;
 static unsigned long lastLogMs = 0;
 static unsigned long lastSdLogMs = 0;
 static uint32_t loopTickCounter = 0;
-static ODriveTelemetry cachedODriveTelem;
+static MotorTelemetry cachedODriveTelem;
 
 void setup() {
   Serial.begin(115200);
   delay(1000);
   Serial.println("\n=======================================================");
-#if defined(ODRIVE_VIRTUAL) && ODRIVE_VIRTUAL
-  Serial.println("  AquaControl: ESP32 [VIRTUAL ODRIVE] Controller Ready  ");
+#if defined(AERADOR_VIRTUAL) && AERADOR_VIRTUAL
+  Serial.println("  AquaControl: ESP32 [VIRTUAL MOTOR BUS] Controller Ready  ");
 #else
   Serial.println("  AquaControl: ESP32 ODrive S1 Controller Starting...  ");
 #endif
   Serial.printf("  Board: %s\n", BOARD_NAME);
   Serial.println("=======================================================");
 
-  // 1. Initialize ODrive Driver (Virtual Simulator or Hardware UART)
-#if defined(ODRIVE_VIRTUAL) && ODRIVE_VIRTUAL
-  Serial.println("[Init] Initializing ODrive Virtual Driver (Simulation Mode)...");
+  // 1. Initialize the motor bus (real ODrive UART or simulated motor)
+#if defined(AERADOR_VIRTUAL) && AERADOR_VIRTUAL
+  Serial.println("[Init] Initializing virtual motor bus (simulated ODrive + paddle)...");
 #else
   Serial.printf("[Init] Connecting to ODrive S1 via UART (RX: GPIO %d, TX: GPIO %d @ %lu baud)...\n",
                 ODRIVE_SERIAL_RX_PIN, ODRIVE_SERIAL_TX_PIN, (unsigned long)ODRIVE_BAUD_RATE);
@@ -62,13 +52,13 @@ void setup() {
   odrive.begin();
 
   // 2. Initialize ESP-NOW Receiver (P2P direct radio from Logger)
-#if !defined(ODRIVE_VIRTUAL) || !ODRIVE_VIRTUAL
+#if defined(AERADOR_VIRTUAL) && AERADOR_VIRTUAL
+  Serial.println("[Init] Virtual Mode: ESP-NOW radio disabled (Web Dashboard <-> motor bus only).");
+#else
   Serial.println("[Init] Initializing ESP-NOW radio...");
   if (!espNowRxInit(controlEngine)) {
     Serial.println("[Init] WARNING: ESP-NOW init failed! Controller will use failsafe baseline.");
   }
-#else
-  Serial.println("[Init] Virtual Mode: ESP-NOW radio disabled (focusing on Web Dashboard <-> ODrive link).");
 #endif
 
   // 3. Initialize MicroSD Card Data Logger
@@ -107,7 +97,8 @@ void loop() {
   if (now - lastLoopMs >= CONTROL_LOOP_INTERVAL_MS) {
     lastLoopMs = now;
 
-    // A. Query live telemetry via Tiered Polling (strictly <= 2.5 ms serial time per tick)
+    // A. Refresh the motor device model / live telemetry.
+    //    Real build: tiered serial polling (<= 2.5 ms per tick). Virtual: one model step.
     odrive.updateTieredTelemetry(cachedODriveTelem, loopTickCounter++);
 
     // B. Check Emergency Stop or compute target velocity from control algorithm

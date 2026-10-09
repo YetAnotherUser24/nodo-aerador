@@ -10,7 +10,7 @@ ControlEngine::ControlEngine() {
   _config.max_rpm = MAX_MOTOR_RPM;
   _config.failsafe_rpm = FAILSAFE_MOTOR_RPM;
   _config.manual_throttle_pct = 0.0f;
-#if defined(ODRIVE_VIRTUAL) && ODRIVE_VIRTUAL
+#if defined(AERADOR_VIRTUAL) && AERADOR_VIRTUAL
   _config.mode = MODE_MANUAL;
 #else
   _config.mode = MODE_PID;

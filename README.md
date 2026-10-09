@@ -96,13 +96,16 @@ nodo-aerador/
 │   ├── cloud_worker.h/.cpp     # Tarea de fondo en Core 0: REST API, telemetría y comandos
 │   ├── esp_now_rx.h/.cpp       # Receptor inalámbrico ESP-NOW para lecturas de la boya
 │   ├── main.cpp                # Punto de entrada, inicialización y bucle determinístico Core 1
+│   ├── motor_bus.h             # Interfaz del bus del motor (única costura hardware<->control)
+│   ├── motor_bus_real.cpp      # Implementación real: adaptador fino sobre ODriveUART
+│   ├── motor_bus_virtual.cpp   # Implementación virtual: enlaza el simulador al bus
+│   ├── motor_sim.h/.cpp        # Modelo declarativo del motor + driver (sin Arduino, testeable)
 │   ├── odrive_sd_logger.h/.cpp # Logger CSV asíncrono no bloqueante a MicroSD
 │   ├── odrive_uart.h/.cpp      # Driver ASCII UART para ODrive S1 con telemetría escalonada
-│   ├── odrive_virtual.h/.cpp   # Emulador matemático de motor/física para desarrollo sin hardware
 │   └── test_odrive_uart.cpp    # Consola interactiva de ingeniería para calibración y pruebas
 ├── test/
 │   ├── test_control_engine.cpp # Pruebas unitarias de cálculo PID y Lógica Difusa
-│   └── test_odrive_virtual.cpp # Pruebas de rampas e inercia del simulador virtual
+│   └── host/test_motor_bus.cpp # Conformance del modelo del motor (host, sin Arduino)
 ├── platformio.ini              # Configuración de entornos de compilación de PlatformIO
 └── README.md                   # Esta guía
 ```
@@ -237,18 +240,25 @@ El controlador puede operar en tres modos, seleccionables remotamente desde la w
 
 ---
 
-## 🧪 Modo Simulación Virtual (ODrive Virtual)
+## 🧪 Modo Simulación Virtual (bus de motor simulado)
 
-Si no tienes a mano el ODrive S1, la fuente de poder o el motor, puedes compilar el entorno virtual:
+Si no tienes a mano el ODrive S1, la fuente de poder o el motor, puedes compilar un entorno virtual:
 
-1. Selecciona el entorno `esp32dev-virtual` (o `esp32-s3-virtual`).
+1. Selecciona el entorno `esp32-s3-virtual` (o `esp32dev-virtual` / `lora32-virtual`).
 2. Sube el código al ESP32.
-3. El módulo [src/odrive_virtual.cpp](src/odrive_virtual.cpp) emula:
-   - Rampa de aceleración/desaceleración de 1500 RPM/s.
-   - Corriente de bus ($I_{bus}$) proporcional al esfuerzo mecánico (hasta 9.5 A a 3500 RPM).
-   - Caída de voltaje nominal ($V_{bus} \approx 24V$).
-   - Transiciones de estados `CLOSED_LOOP_CONTROL` e `IDLE`.
+3. El firmware enlaza [src/motor_bus_virtual.cpp](src/motor_bus_virtual.cpp), que conecta el
+   modelo declarativo [src/motor_sim.cpp](src/motor_sim.cpp) al bus del motor. El lazo de
+   control, el cloud worker y el failsafe son **exactamente** los mismos que en hardware real:
+   - Subida de velocidad de primer orden hacia el envelope de 600 RPM.
+   - Corriente de bus ($I_{bus}$) proporcional a la carga hidrodinámica (hasta 9.5 A a 600 RPM).
+   - Caída de tensión de bus ($V_{bus} = V_{nom} - I_{bus}\,R$) y temperatura de FET.
+   - Transiciones de estados `CLOSED_LOOP_CONTROL` e `IDLE` y desarme por fallo.
 4. Podrás mover los mandos en el Dashboard Web y ver las respuestas dinámicas en el monitor serie sin riesgo de quemar hardware.
+
+> El bus virtual se elige por entorno (`build_src_filter`): el binario virtual **no contiene**
+> `ODriveUART` y el binario real **no contiene** el simulador. Ver `VIRTUAL_NODES.md` en la raíz.
+>
+> ⚠️ Nunca ejecutes un nodo real y uno virtual con la **misma `DEVICE_KEY`** a la vez.
 
 ---
 
