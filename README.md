@@ -1,5 +1,7 @@
 # 🌊 Nodo aerador — ESP32-S3 + ODrive S1 (`nodo-aerador`)
 
+> **Repositorio:** [github.com/YetAnotherUser24/nodo-aerador](https://github.com/YetAnotherUser24/nodo-aerador)
+
 Sistema de control embebido en tiempo real para aeración en lazo cerrado basado en **ESP32** y controlador de motor **ODrive S1**. Este firmware regula automáticamente la velocidad de giro (RPM) del motor de aeración en función del nivel de **Oxígeno Disuelto (DO)** y temperatura del agua medidos en campo, además de sincronizarse bidireccionalmente con la plataforma en la nube (Dashboard Web).
 
 ---
@@ -130,7 +132,7 @@ Sigue estos pasos ordenados para dejar tu ESP32 programado y funcionando:
 3. Espera a que PlatformIO inicialice el entorno (verás el ícono de la hormiga de PlatformIO en la barra lateral izquierda).
 
 ### Paso 2: Configurar las Credenciales WiFi y Parámetros
-Abre el archivo [src/config.h](file:///src/config.h) y edita las siguientes líneas según tu red local:
+Abre el archivo [src/config.h](src/config.h) y edita las siguientes líneas según tu red local:
 
 ```cpp
 /* ----------------------------- WiFi ----------------------------- */
@@ -199,7 +201,7 @@ Abre el archivo [src/config.h](file:///src/config.h) y edita las siguientes lín
 | **GPIO 12** | **TX** (ej. Pin 1 / J3) | ESP32 RX <- ODrive TX | Recepción de telemetría de voltaje/corriente |
 | **GND** | **GND** | Masa común | **Mandatorio** |
 
-*(Para la placa **LilyGO LoRa32 + HAT**, el pinout cambia internamente a **GPIO 4 (TX)** y **GPIO 39 (RX)** a 460800 baud según está definido en [src/board.h](file:///src/board.h)).*
+*(Para la placa **LilyGO LoRa32 + HAT**, el pinout cambia internamente a **GPIO 4 (TX)** y **GPIO 39 (RX)** a 460800 baud según está definido en [src/board.h](src/board.h)).*
 
 ### 2. Conexión de Alimentación ODrive S1
 - Alimentar el ODrive S1 con fuente DC o batería principal (típicamente 24V o 48V con corriente adecuada).
@@ -241,7 +243,7 @@ Si no tienes a mano el ODrive S1, la fuente de poder o el motor, puedes compilar
 
 1. Selecciona el entorno `esp32dev-virtual` (o `esp32-s3-virtual`).
 2. Sube el código al ESP32.
-3. El módulo [src/odrive_virtual.cpp](file:///src/odrive_virtual.cpp) emula:
+3. El módulo [src/odrive_virtual.cpp](src/odrive_virtual.cpp) emula:
    - Rampa de aceleración/desaceleración de 1500 RPM/s.
    - Corriente de bus ($I_{bus}$) proporcional al esfuerzo mecánico (hasta 9.5 A a 3500 RPM).
    - Caída de voltaje nominal ($V_{bus} \approx 24V$).
@@ -266,7 +268,7 @@ Para diagnóstico en banco y puesta a punto del ODrive S1:
 
 ## ⚙️ Configuración de Parámetros (`config.h`)
 
-Principales variables configurables en [src/config.h](file:///src/config.h):
+Principales variables configurables en [src/config.h](src/config.h):
 
 | Parámetro | Valor por Defecto | Descripción |
 | :--- | :--- | :--- |
