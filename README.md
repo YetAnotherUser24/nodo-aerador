@@ -1,4 +1,4 @@
-# 🌊 AquaControl - ESP32 ODrive S1 Motor Controller
+# 🌊 Nodo aerador — ESP32-S3 + ODrive S1 (`nodo-aerador`)
 
 Sistema de control embebido en tiempo real para aeración en lazo cerrado basado en **ESP32** y controlador de motor **ODrive S1**. Este firmware regula automáticamente la velocidad de giro (RPM) del motor de aeración en función del nivel de **Oxígeno Disuelto (DO)** y temperatura del agua medidos en campo, además de sincronizarse bidireccionalmente con la plataforma en la nube (Dashboard Web).
 
@@ -28,10 +28,10 @@ Sistema de control embebido en tiempo real para aeración en lazo cerrado basado
    - **Core 0 (Comunicaciones y Almacenamiento)**: Cliente WiFi + HTTPS hacia la nube (Supabase / Vercel), sondeo de comandos remotos, persistencia NVS y escritura no bloqueante en MicroSD.
 2. **Algoritmos de Control en Lazo Cerrado**:
    - **Controlador PID**: Con anti-windup clamping en el integrador y filtrado derivativo.
-   - **Controlador Difuso (Fuzzy Logic)**: Reglas de inferencia basadas en error de DO y derivada temporal de recuperación de oxígeno.
+   - **Controlador Difuso (Fuzzy Logic)**: rama heredada del controlador de banco, **fuera del alcance de la tesis** (AGENTS.md regla 14). Se conserva por compatibilidad de comandos; el algoritmo declarado y sintonizado es el PID. El único término derivativo vivo está en el PID.
    - **Control Manual Remoto**: Ajuste de acelerador porcentual (0–100%) directo desde la interfaz web.
 3. **Recepción Inalámbrica P2P (ESP-NOW)**:
-   - Enlace directo con la boya o nodo sensor (`od-logger`) sin requerir router WiFi para recibir lecturas de DO (mg/L), temperatura (°C) y sincronización temporal RTC.
+   - Enlace directo con la boya o nodo sensor (`nodo-sensor-od`) sin requerir router WiFi para recibir lecturas de DO (mg/L), temperatura (°C) y sincronización temporal RTC.
 4. **Failsafe y Parada de Emergencia (E-Stop)**:
    - Perro guardián (watchdog) de 35 segundos: si la boya pierde comunicación, el motor conmuta automáticamente a una velocidad de seguridad predefinida.
    - E-Stop por software con prioridad absoluta: apaga el motor inmediatamente y transiciona el ODrive a estado *IDLE* (desarmado).
@@ -84,7 +84,7 @@ Sistema de control embebido en tiempo real para aeración en lazo cerrado basado
 ## 📂 Estructura del Proyecto
 
 ```text
-odrive-controller/
+nodo-aerador/
 ├── include/
 │   └── esp_now_packet.h        # Estructura del paquete de telemetría P2P (Boya -> Controlador)
 ├── src/
@@ -126,7 +126,7 @@ Sigue estos pasos ordenados para dejar tu ESP32 programado y funcionando:
 
 ### Paso 1: Abrir el Proyecto en VS Code
 1. Abre VS Code.
-2. Ve a `File` > `Open Folder...` y selecciona la carpeta del proyecto `odrive-controller`.
+2. Ve a `File` > `Open Folder...` y selecciona la carpeta del proyecto `nodo-aerador`.
 3. Espera a que PlatformIO inicialice el entorno (verás el ícono de la hormiga de PlatformIO en la barra lateral izquierda).
 
 ### Paso 2: Configurar las Credenciales WiFi y Parámetros
@@ -143,27 +143,32 @@ Abre el archivo [src/config.h](file:///src/config.h) y edita las siguientes lín
 ```
 
 ### Paso 3: Seleccionar el Entorno de Compilación
-En la barra inferior azul de VS Code, haz clic en el selector de entorno (ej. `env:esp32dev`) y elige el que coincida con tu hardware:
+`default_envs = esp32-s3`, así que el selector ya apunta a la placa de la tesis. Elige otro solo si tu hardware es distinto:
 
 | Tu Hardware | Entorno a Seleccionar | Descripción |
 | :--- | :--- | :--- |
-| **ESP32 DevKit V1 / NodeMCU** (Hardware Real) | `esp32dev` | Conexión física por UART al ODrive S1 |
-| **ESP32 DevKit / SuperMini** (Sin ODrive / Pruebas) | `esp32dev-virtual` | Simula motor y física para probar la web |
-| **LilyGO T3 LoRa32 + HAT** (Hardware Real Tesis) | `lilygo-lora32` | Configuración con HAT de tesis y MicroSD |
-| **LilyGO T3 LoRa32** (Pruebas Virtuales) | `lilygo-lora32-virtual` | LilyGO en modo simulador |
-| **ESP32-S3 SuperMini / DevKitC-1** | `esp32-s3` | Para placas basadas en ESP32-S3 |
-| **Consola de Calibración de Banco** | `test-odrive` | Consola interactiva UART para configurar ODrive |
+| **ESP32-S3 SuperMini / DevKitC-1** (Placa de la tesis) | `esp32-s3` **(por defecto)** | Entorno por defecto; 4 MB de flash y USB-CDC |
+| **Mismo ESP32-S3, por WiFi** | `esp32-s3-ota` | Flasheo inalámbrico en `aquacontrol-odrive.local` |
+| **ESP32-S3 sin ODrive** | `esp32-s3-virtual` | Simula motor y física para probar la web |
+| **ESP32 DevKit V1 / NodeMCU** | `esp32dev` | Conexión física por UART al ODrive S1 |
+| **ESP32 DevKit, sin ODrive** | `esp32dev-virtual` | Simulador sobre la placa clásica |
+| **LilyGO T3 LoRa32 + HAT** | `lora32` | Variante con HAT de tesis y MicroSD |
+| **LilyGO T3 LoRa32, sin ODrive** | `lora32-virtual` | LilyGO en modo simulador |
+| **Verificación de telemetría por USB** | `verify` | Lee las 6 variables del ODrive y las imprime como CSV, sin WiFi ni nube |
+| **Consola de calibración de banco** | `uart-test` | Consola interactiva UART para configurar el ODrive |
+
+> Los entornos `verify` y `uart-test` sobreescriben `build_src_filter`: **no** son el firmware del nodo.
 
 ### Paso 4: Compilar y Subir el Firmware
 1. Conecta el ESP32 a tu computadora mediante un cable USB de datos de buena calidad.
 2. En la barra inferior de PlatformIO, haz clic en:
    - **Build** (ícono de verificación `✓`) para compilar y comprobar que no haya errores de sintaxis.
    - **Upload** (ícono de flecha `→`) para transferir el firmware a la memoria flash del ESP32.
-   *(Alternativa por terminal: `pio run -e esp32dev -t upload`)*.
+   *(Alternativa por terminal: `pio run -t upload`; para la placa clásica, `pio run -e esp32dev -t upload`)*.
 3. Si el ESP32 no entra en modo bootloader automáticamente durante la subida, mantén presionado el botón **BOOT** (o **IO0**) en la placa cuando aparezca `Connecting........_____`, y suéltalo cuando empiece el flasheo.
 
 ### Paso 5: Abrir el Monitor Serial
-1. Haz clic en el ícono del enchufe o monitor (`🔌`) en la barra inferior (o ejecuta `pio run -e esp32dev -t monitor`).
+1. Haz clic en el ícono del enchufe o monitor (`🔌`) en la barra inferior (o ejecuta `pio device monitor -b 115200`).
 2. La velocidad configurada es **115200 baud**.
 3. Deberás ver el banner de inicio:
    ```text
@@ -247,7 +252,7 @@ Si no tienes a mano el ODrive S1, la fuente de poder o el motor, puedes compilar
 
 Para diagnóstico en banco y puesta a punto del ODrive S1:
 
-1. Selecciona el entorno `test-odrive` en `platformio.ini`.
+1. Selecciona el entorno `uart-test` en `platformio.ini`.
 2. Sube el firmware y abre el monitor serial a 115200 baud.
 3. Escribe `h` o `?` y presiona Enter para ver el menú:
    - **Telemetría y Estado**: `t` (leer telemetría completa), `e` (leer errores), `c` (borrar errores).
@@ -294,5 +299,5 @@ El trabajador de fondo en Core 0 interactúa con las siguientes rutas REST:
 
 ## 🤝 Mantenimiento y Buenas Prácticas
 
-- **Revisión de Errores ODrive**: Si el motor no gira al enviarle comando, revisa el monitor serial: si dice `[ERROR]` o `DISARMED`, es probable que el ODrive haya entrado en fallo por subtensión de la fuente de 24V o error de sensor de motor. Usa la consola `test-odrive` para leer `active_errors` y `disarm_reason`.
+- **Revisión de Errores ODrive**: Si el motor no gira al enviarle comando, revisa el monitor serial: si dice `[ERROR]` o `DISARMED`, es probable que el ODrive haya entrado en fallo por subtensión de la fuente de 24V o error de sensor de motor. Usa la consola `uart-test` para leer `active_errors` y `disarm_reason`.
 - **Modificaciones de Código**: No ejecutes llamadas bloqueantes (`delay()`, escrituras pesadas a flash o peticiones HTTP) en el Core 1 (`main.cpp`), ya que degradarán la frecuencia del lazo de 20 Hz y la comunicación UART con el ODrive.
