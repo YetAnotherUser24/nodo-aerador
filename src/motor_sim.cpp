@@ -120,11 +120,15 @@ void MotorSim::tick(uint32_t nowMs) {
   _vbus = _spec.nominalVbus - _ibus * _spec.busResistance;
   _power = _vbus * _ibus;
 
+  // Mechanical torque from shaft power and angular speed. Below the load floor the
+  // shaft is essentially unloaded, so report zero rather than amplifying the small
+  // idle power over a near-zero omega (which produced implausible iq spikes at stop).
   const float omega = (_rpm * 2.0f * 3.14159265f) / 60.0f;
-  _torque = (omega > 0.1f) ? (_power / omega) : 0.0f;
+  _torque = (omega > 1.0f) ? (_power / omega) : 0.0f;
 
   // q-axis current proxy: torque / (kT) with kT ~ 0.09 Nm/A for this class of motor.
-  _iq = (_rpm > 1.0f) ? (_torque / 0.09f) : 0.0f;
+  // Keep the same threshold as torque so the two stay physically consistent.
+  _iq = (omega > 1.0f) ? (_torque / 0.09f) : 0.0f;
 
   const float fetTarget = _spec.ambientTempC + _ibus * _spec.tempPerAmp;
   const float ta = dt / (_spec.tempTauS + dt);

@@ -68,6 +68,27 @@ int main() {
   sim.requestVelocityRpm(9999.0f);
   assert(sim.targetRpm() <= spec.rpmMax + 0.001f);
 
+  // 5b. Torque and iq must fall to zero smoothly as the shaft stops: no blow-up from
+  //     dividing the idle bus power by a near-zero omega.
+  sim.requestState(1);
+  bool torqueSettled = false;
+  bool iqSettled = false;
+  for (int i = 0; i < 500; ++i) {
+    advance(sim, t, 10);
+    if (sim.actualRpm() < 2.0f) {
+      assert(sim.torque() <= 1.0f);   // never a spike
+      assert(sim.iq() <= 15.0f);      // iq = torque/0.09, so bounded
+      if (sim.actualRpm() < 0.5f) {
+        assert(near(sim.torque(), 0.0f, 0.01f));
+        assert(near(sim.iq(), 0.0f, 0.05f));
+        torqueSettled = true;
+        iqSettled = true;
+        break;
+      }
+    }
+  }
+  assert(torqueSettled && iqSettled);
+
   // 6. Idle command coasts down.
   sim.requestState(1);
   advance(sim, t, 3000);
