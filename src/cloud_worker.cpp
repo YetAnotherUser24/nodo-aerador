@@ -752,12 +752,13 @@ static void cloudWorkerTask(void* pvParameters) {
         // Fall back to the system clock, which NTP anchors on connect. Both are needed: with an
         // unanchored clock every sample stamps 0 and the batch collapses onto one instant, which
         // is the exact failure per-sample timestamps exist to prevent.
+        // ESP-NOW from the logger first, since it is the deployment's persistent authority, then
+        // the transport's best-known clock -- NTP when there is internet, the retained
+        // `aqua/time` broadcast when there is not. Falling back to `millis()` last keeps the
+        // samples ordered and flagged monotonic, which beats collapsing them all onto zero.
         uint64_t sampleMs = telem.rtc_timestamp_ms;
-        if (sampleMs == 0) {
-          struct timeval tv;
-          gettimeofday(&tv, nullptr);
-          sampleMs = (uint64_t)tv.tv_sec * 1000ULL + (uint64_t)(tv.tv_usec / 1000);
-        }
+        if (sampleMs == 0) sampleMs = aquaLinkNowMs();
+        if (sampleMs == 0) sampleMs = (uint64_t)millis();
         aquaLinkQueue(telem, sampleMs);
 #else
         s_telemetryBatch[s_batchIndex] = telem;
