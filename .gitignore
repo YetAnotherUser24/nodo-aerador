@@ -4,3 +4,8 @@
 *.bin
 *.elf
 *.map
+
+# Python bytecode. A committed .pyc turns `git diff` into a binary blob that
+# `git apply` refuses, which is how it was found (firmware-patches/03).
+__pycache__/
+*.pyc
