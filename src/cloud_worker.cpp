@@ -1,5 +1,6 @@
 #include "cloud_worker.h"
 #include "config.h"
+#include "aqua_link.h"  // schema-v2 transport; expands to nothing unless AQUA_TRANSPORT_MQTT
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
@@ -315,6 +316,15 @@ static void sendTelemetryBatch(WiFiClientSecure& client, const SharedTelemetry* 
 }
 
 static void acknowledgeCommand(WiFiClientSecure& client, const String& cmdId, bool success, float speedPercent) {
+#if AQUA_TRANSPORT_MQTT
+  // The client is unused on this path: the acknowledgement rides the MQTT session that the
+  // cloud task owns, so there is no second TLS handshake to pay for either.
+  (void)client;
+  (void)speedPercent;
+  if (cmdId.length() > 0) {
+    aquaLinkAck(cmdId.c_str(), success, success ? "applied" : "rejected");
+  }
+#else
   HTTPClient http;
   String url = String("https://") + AQUACONTROL_HOST + AQUACONTROL_ACK_PATH + "/" + cmdId + "/acknowledge";
   http.setReuse(true);
@@ -346,8 +356,13 @@ static void acknowledgeCommand(WiFiClientSecure& client, const String& cmdId, bo
   }
 
   http.end();
+#endif  // AQUA_TRANSPORT_MQTT
 }
 
+/** Executes a command body. Defined below so both transports share one decision. */
+static bool executeCommandBody(const String& payload, WiFiClientSecure& client);
+
+#if !AQUA_TRANSPORT_MQTT
 static bool pollPendingCommands(WiFiClientSecure& client) {
   HTTPClient http;
   String url = String("https://") + AQUACONTROL_HOST + AQUACONTROL_PENDING_CMD + "?device_key=" + AQUACONTROL_DEVICE_KEY;
@@ -379,6 +394,24 @@ static bool pollPendingCommands(WiFiClientSecure& client) {
   }
 
   if (code == 200 && payload.length() > 0) {
+    return executeCommandBody(payload, client);
+  }
+  return false;
+}
+#endif  // !AQUA_TRANSPORT_MQTT
+
+/**
+ * Execute one command body: the action ladder, the actuator changes and the acknowledgement.
+ *
+ * Lifted out of the HTTP poll so the polled and pushed paths run the *same* decision. The
+ * parser is deliberately unchanged -- only the source of the bytes differs.
+ *
+ * The inner braces stay because the original scoped the JSON document to reclaim its stack
+ * before the acknowledgement starts a TLS handshake; that reason still applies on the legacy
+ * path, and keeping the scope identical keeps the two transports comparable.
+ */
+static bool executeCommandBody(const String& payload, WiFiClientSecure& client) {
+  {
     String cmdId;
     String cmdType;
     float speedPct = 0.0f;
@@ -540,6 +573,16 @@ static bool pollPendingCommands(WiFiClientSecure& client) {
         acknowledgeCommand(client, cmdId, true, 0.0f);
         delay(500);
         ESP.restart();
+      } else {
+        // Nothing in the ladder matched.
+        //
+        // This branch did not exist: an unrecognised action fell off the end of the chain with
+        // no branch taken and *nothing* acknowledged, so the gateway held the command open
+        // until its deadline expired and the operator saw a command that never resolved. A node
+        // that cannot carry out a verb should say so -- silence is indistinguishable from a
+        // node that is offline, and it is the harder of the two to diagnose.
+        remoteLogPrintf("[Cloud] Unsupported command action '%s'; rejecting\n", cmdType.c_str());
+        acknowledgeCommand(client, cmdId, false, 0.0f);
       }
       return true;
     }
@@ -652,6 +695,12 @@ static void cloudWorkerTask(void* pvParameters) {
       if (!wasConnected) {
         Serial.printf("[Cloud Worker] WiFi connected. IP: %s (RSSI: %d dBm, ch: %u)\n",
                       WiFi.localIP().toString().c_str(), WiFi.RSSI(), (unsigned)WiFi.channel());
+        // Anchor the system clock. The node's *intended* time authority is the DS3231 on the OD
+        // logger, relayed over ESP-NOW, which is why nothing here ever asked NTP for the time --
+        // but that source only exists when the logger is in radio range, and on the bench
+        // (virtual mode) it never is. Without a fallback every telemetry sample stamps 0, so the
+        // per-sample timestamps the envelope carries all collapse onto one instant.
+        configTime(0, 0, "pool.ntp.org", "time.nist.gov");
         digitalWrite(LED_BUILTIN, LOW); // Turn ON LED
         wasConnected = true;
       }
@@ -684,15 +733,44 @@ static void cloudWorkerTask(void* pvParameters) {
 
       unsigned long now = millis();
 
+#if AQUA_TRANSPORT_MQTT
+      // Serviced here rather than at the top of the task: the loop `continue`s before this
+      // point while WiFi is down, and there is no point driving an MQTT client without a
+      // network. This is also the only task that touches the transport, which is what the
+      // module's thread-safety contract requires.
+      aquaLinkLoop();
+#endif
+
       if (now - lastTelemSample >= TELEMETRY_SAMPLE_INTERVAL_MS) {
         lastTelemSample = now;
         SharedTelemetry telem = getSharedTelemetry();
+#if AQUA_TRANSPORT_MQTT
+        // Queued the moment it is taken, carrying its OWN instant. A batch timestamped once on
+        // the way out puts every sample on one millisecond and a plot draws one point where it
+        // was given twenty-five.
+        // The node's own time authority is the DS3231 on the OD logger, relayed over ESP-NOW.
+        // Fall back to the system clock, which NTP anchors on connect. Both are needed: with an
+        // unanchored clock every sample stamps 0 and the batch collapses onto one instant, which
+        // is the exact failure per-sample timestamps exist to prevent.
+        uint64_t sampleMs = telem.rtc_timestamp_ms;
+        if (sampleMs == 0) {
+          struct timeval tv;
+          gettimeofday(&tv, nullptr);
+          sampleMs = (uint64_t)tv.tv_sec * 1000ULL + (uint64_t)(tv.tv_usec / 1000);
+        }
+        aquaLinkQueue(telem, sampleMs);
+#else
         s_telemetryBatch[s_batchIndex] = telem;
         s_batchIndex = (s_batchIndex + 1) % TELEMETRY_BATCH_SIZE;
         if (s_batchCount < TELEMETRY_BATCH_SIZE) s_batchCount++;
+#endif
       }
 
-      // Priority 1: Check cloud commands (dynamic interval: fast in Manual mode)
+#if !AQUA_TRANSPORT_MQTT
+      // Priority 1: Check cloud commands (dynamic interval: fast in Manual mode).
+      //
+      // With MQTT on, commands are pushed and this poll is compiled out. On this node it was
+      // the heaviest thing Core 0 did: a TLS handshake every 1.5 s, down to 1 s in manual mode.
       unsigned long cmdPollInterval = (s_engine && s_engine->getConfig().mode == MODE_MANUAL)
                                         ? COMMAND_POLL_INTERVAL_MANUAL_MS
                                         : COMMAND_POLL_INTERVAL_MS;
@@ -707,10 +785,16 @@ static void cloudWorkerTask(void* pvParameters) {
           fastPollBurst = 0;
         }
       }
+#endif  // !AQUA_TRANSPORT_MQTT
 
       // Priority 2: Periodic batch telemetry push
       if (now - lastTelemPush >= TELEMETRY_PUSH_INTERVAL_MS) {
         lastTelemPush = now;
+#if AQUA_TRANSPORT_MQTT
+        // One envelope per push interval, holding every sample taken since the last one. On
+        // failure the batch is retained, so an outage costs latency rather than data.
+        aquaLinkFlush();
+#else
         // Send batch if we have at least one sample (send whatever is collected)
         if (s_batchCount > 0) {
           sendTelemetryBatch(client, s_telemetryBatch, s_batchCount);
@@ -718,6 +802,7 @@ static void cloudWorkerTask(void* pvParameters) {
           s_batchCount = 0;
           s_batchIndex = 0;
         }
+#endif
       }
     }
 
@@ -740,3 +825,72 @@ void startCloudWorker(ControlEngine& engine) {
     0
   );
 }
+
+#if AQUA_TRANSPORT_MQTT
+/**
+ * Translate a schema-v2 command into the shape the shared executor already understands.
+ *
+ * The v2 message carries `cmd_id`, `action`, `target` and `exp`. The legacy envelope nested the
+ * same information under `command:{id, command_type, payload:{...}}`. Only the shape differs, so
+ * this reshapes rather than re-deciding anything — `executeCommandBody` remains the one place
+ * that knows what `set_state` or `clear_estop` mean.
+ *
+ * A command with no action is dropped rather than acknowledged: there is nothing to carry out,
+ * and acking it would tell the gateway the node acted on an empty verb.
+ */
+void aeratorHandleMqttCommand(const char* payload, size_t length) {
+  StaticJsonDocument<1024> envelope;
+  if (deserializeJson(envelope, payload, length) != DeserializationError::Ok) {
+    remoteLogPrintf("[AQUA] command payload was not valid JSON; ignored\n");
+    return;
+  }
+
+  const char* cmdId = envelope["cmd_id"].is<const char*>() ? envelope["cmd_id"].as<const char*>() : "";
+  const char* action = envelope["action"].is<const char*>() ? envelope["action"].as<const char*>() : "";
+  if (action[0] == '\0') {
+    remoteLogPrintf("[AQUA] command had no action; ignored\n");
+    return;
+  }
+
+  // Attribution travels with the command, and is cleared only by the actions that *end* a run.
+  // A `start_experiment` that does not repeat the id keeps the current one, because a UI sending
+  // a start has no reason to restate the run it already began.
+  const char* exp = envelope["exp"].is<const char*>() ? envelope["exp"].as<const char*>() : nullptr;
+  const String stateArg = envelope["target"]["state"].is<const char*>()
+                              ? envelope["target"]["state"].as<String>()
+                              : String("");
+  const bool endsRun = String(action) == "stop_experiment" ||
+                       (String(action) == "set_state" && stateArg != "ACTIVE_EXPERIMENT" &&
+                        stateArg != "");
+  if (endsRun) {
+    setActiveExperimentId("");
+  } else if (exp != nullptr && exp[0] != '\0') {
+    setActiveExperimentId(exp);
+  }
+
+  // Rebuild the legacy envelope the executor reads. Synthesising it here rather than teaching
+  // the executor a second shape is what keeps one parser instead of two that drift.
+  StaticJsonDocument<1024> legacy;
+  JsonObject root = legacy.to<JsonObject>();
+  root["has_command"] = true;
+  JsonObject cmd = root.createNestedObject("command");
+  cmd["id"] = cmdId;
+  cmd["command_type"] = action;
+  JsonObject params = cmd.createNestedObject("payload");
+  JsonObjectConst target = envelope["target"].as<JsonObjectConst>();
+  for (JsonPairConst kv : target) {
+    params[kv.key()] = kv.value();
+  }
+  params["action"] = action;
+  if (envelope["target"]["speed_percent"].is<float>()) {
+    cmd["speed_percent"] = envelope["target"]["speed_percent"].as<float>();
+  }
+
+  String body;
+  serializeJson(legacy, body);
+  // The executor only reaches for the client on the legacy path; under MQTT the acknowledgement
+  // rides the session the cloud task already owns, so this one is never opened.
+  static WiFiClientSecure unusedClient;
+  executeCommandBody(body, unusedClient);
+}
+#endif  // AQUA_TRANSPORT_MQTT
