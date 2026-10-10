@@ -10,6 +10,7 @@
  */
 
 #include <Arduino.h>
+#include <esp_task_wdt.h>
 #include <WiFi.h>
 #include "config.h"
 #include "motor_bus.h"
@@ -40,6 +41,29 @@ void setup() {
   Serial.println("  AquaControl: ESP32 ODrive S1 Controller Starting...  ");
 #endif
   Serial.printf("  Board: %s\n", BOARD_NAME);
+
+  // Task watchdog: 60 s, trigger_panic.
+  //
+  // This node had none, so the Arduino default applied -- 5 s with the idle tasks on the watch
+  // list -- while the cloud task opens a blocking TLS connection from Core 0. A broker or
+  // server that accepts TCP and then answers nothing starves that core's idle task and resets
+  // the node. Configured explicitly here so the timeout is a decision rather than a default.
+  //
+  // The registration is only half of it: `esp_task_wdt_add(NULL)` adds *this* task, so `loop()`
+  // must feed it (see below). The mixer shipped without the feed and rebooted on an exact 60 s
+  // cycle, which is worse than the fault the watchdog was added to catch.
+#if defined(ESP_IDF_VERSION_MAJOR) && (ESP_IDF_VERSION_MAJOR >= 5)
+  esp_task_wdt_config_t wdt_config = {
+      .timeout_ms = 60000,
+      .idle_core_mask = (1 << portNUM_PROCESSORS) - 1,
+      .trigger_panic = true,
+  };
+  esp_task_wdt_reconfigure(&wdt_config);
+  esp_task_wdt_add(NULL);
+#else
+  esp_task_wdt_init(60, true);
+  esp_task_wdt_add(NULL);
+#endif
   Serial.println("=======================================================");
 
   // 1. Initialize the motor bus (real ODrive UART or simulated motor)
@@ -91,6 +115,12 @@ void setup() {
 }
 
 void loop() {
+  // Feed the task watchdog registered in `setup()`. Without this the node reboots on a fixed
+  // 60 s cycle regardless of what it is doing -- the idle tasks stay on the watch list too
+  // (`idle_core_mask`), which is what still catches a core-0 task blocking long enough to
+  // starve idle0.
+  esp_task_wdt_reset();
+
   unsigned long now = millis();
 
   // 20 Hz deterministic control loop on Core 1
