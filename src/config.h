@@ -110,4 +110,50 @@
 #endif
 #define TELNET_LOG_PORT         23       // Standard Telnet port
 
+/* ------------- Schema-v2 MQTT transport (firmware-patches/04) ----------- */
+// 1 = carry telemetry, commands and acks over the shared schema-v2 MQTT
+// transport. 0 = keep the legacy HTTPS POST plus the 1 Hz pending-command poll,
+// which is what this node's poll used to cost on Core 0.
+#ifndef AQUA_TRANSPORT_MQTT
+#define AQUA_TRANSPORT_MQTT     1
+#endif
+
+// Every setting below carries its OWN #ifndef, deliberately.
+//
+// Guarding only the block above would make `-DAQUA_MQTT_HOST=...` lose to this
+// file every time: the preprocessor skips the block's *body*, so the `#define`s
+// inside it are never redefined and the command-line value is silently ignored.
+// The pump shipped that bug to the bench and it cost a full cycle, because
+// nothing about the failure says "your override did nothing".
+#ifndef AQUA_MQTT_HOST
+#define AQUA_MQTT_HOST          "aqua-station.local"
+#endif
+#ifndef AQUA_MQTT_PORT
+#define AQUA_MQTT_PORT          1883
+#endif
+#ifndef AQUA_MQTT_USER
+#define AQUA_MQTT_USER          ""
+#endif
+#ifndef AQUA_MQTT_PASSWORD
+#define AQUA_MQTT_PASSWORD      ""
+#endif
+#ifndef AQUA_MQTT_KEEPALIVE_S
+#define AQUA_MQTT_KEEPALIVE_S   30
+#endif
+// Bounds the socket so a broker that accepts TCP and then answers nothing cannot
+// busy-wait the library default (15 s) and starve Core 0's idle task into a
+// watchdog reset.
+#ifndef AQUA_MQTT_SOCKET_TIMEOUT_S
+#define AQUA_MQTT_SOCKET_TIMEOUT_S 5
+#endif
+#ifndef AQUA_MQTT_CLIENT_ID
+#define AQUA_MQTT_CLIENT_ID     "aqua-aerator"
+#endif
+#ifndef AQUA_MQTT_BUFFER_BYTES
+#define AQUA_MQTT_BUFFER_BYTES  8192
+#endif
+#ifndef AQUA_MQTT_RETRY_MS
+#define AQUA_MQTT_RETRY_MS      5000UL
+#endif
+
 
