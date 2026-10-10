@@ -117,17 +117,17 @@ void publishPresence(bool online, const char* reason) {
 
 /**
  * Entries `buildFields` writes: the per-sample time, plus one per field the registry declares
- * for this role (12).
+ * for this role (13).
  *
  * This exists because the array used to be a bare `[9]`, copied from the mixer, which writes 9.
- * The aerator writes 13, so the copy ran off the end of a stack array and panicked the node a
+ * The aerator writes 14, so the copy ran off the end of a stack array and panicked the node a
  * few seconds after every boot -- the crash landed on the 5 s telemetry flush, which is the
  * first time the batch is serialised. A count that is named and used for the array is harder to
  * leave stale than a literal in two places.
  */
-constexpr size_t kSampleFieldCount = 1 + 12;
+constexpr size_t kSampleFieldCount = 1 + 13;
 
-/** One sample's fields: the per-sample time plus the 12 the registry declares. */
+/** One sample's fields: the per-sample time plus the 13 the registry declares. */
 size_t buildFields(const Queued& entry, aqua::FieldValue* out) {
   namespace f = aqua::aerator_fields;
   const SharedTelemetry& st = entry.state;
@@ -158,8 +158,9 @@ size_t buildFields(const Queued& entry, aqua::FieldValue* out) {
   out[n++] = aqua::FieldValue::text(f::kCtlMode, mode);
   out[n++] = aqua::FieldValue::flag(f::kCtlFailsafe, st.failsafe_active);
   // Received from the OD logger over ESP-NOW for this node's own control loop. Informational
-  // only: `od_sensor` is authoritative for dissolved oxygen.
+  // only: `od_sensor` is authoritative for dissolved oxygen and water temperature.
   out[n++] = aqua::FieldValue::num(f::kPeerDoMgL, st.measured_do, 3);
+  out[n++] = aqua::FieldValue::num(f::kPeerTempC, st.water_temp, 2);
   return n;
 }
 
