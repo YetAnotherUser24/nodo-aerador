@@ -3,7 +3,7 @@
 #include "control_engine.h"
 
 struct LoggerSyncState {
-  uint64_t rtc_timestamp_ms = 0; // DS3231 RTC milliseconds from od-logger
+  uint64_t rtc_timestamp_ms = 0; // epoch ms UTC, from the od-logger over ESP-NOW (schema t_dev_ms)
   uint32_t sequence = 0;          // Packet sequence counter
   float last_do_mg_l = 0.0f;
   float last_water_temp_c = 0.0f;
