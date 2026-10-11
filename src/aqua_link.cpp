@@ -286,9 +286,13 @@ static bool connectOnce() {
   // dashboard's staleness timeout. A mixer left running by a crashed node is a physical hazard,
   // so "unknown" is the one state this must not be able to reach.
   char willPayload[176];
+  // The role here is this node's own, and it was copied from the mixer's transport and
+  // never renamed. The gateway resolves presence from the topic's node id, so the wrong
+  // role no longer mis-marks another node -- but an operator reading the presence record
+  // would still see the aerator contradict itself.
   const int willWritten =
       snprintf(willPayload, sizeof(willPayload),
-               "{\"v\":2,\"node_id\":\"%s\",\"role\":\"mixer\",\"online\":false,"
+               "{\"v\":2,\"node_id\":\"%s\",\"role\":\"aerator\",\"online\":false,"
                "\"reason\":\"lwt\",\"boot_id\":%lu}",
                aqua::nodeId(aqua::Role::Aerator), (unsigned long)s_bootId);
   if (willWritten <= 0 || (size_t)willWritten >= sizeof(willPayload)) return false;
@@ -320,6 +324,10 @@ bool aquaLinkBegin() {
   if (WiFi.status() != WL_CONNECTED) return false;
 
   s_bootId = esp_random() | 1u;
+  // Push the real per-boot id into the builder, which was constructed with a placeholder
+  // because the RNG is not up at static-init. Without this the published boot_id stays 0
+  // and the (node_id, boot_id, seq) key cannot separate two boots.
+  s_builder.setBootId(s_bootId);
 
   s_mqtt.setServer(AQUA_MQTT_HOST, AQUA_MQTT_PORT);
   s_mqtt.setBufferSize(AQUA_MQTT_BUFFER_BYTES);
