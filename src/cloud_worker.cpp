@@ -43,6 +43,13 @@ static void setActiveExperimentId(const char* id) {
     s_activeExperimentId[0] = '\0';
   }
   portEXIT_CRITICAL(&s_expMux);
+
+  // Publish to the link layer, which is what stamps `exp` on the telemetry envelope. This is the
+  // one writer for both stores: the envelope's id lives in `aqua_link.cpp`, and wiring the two
+  // together in the accessor means every caller stays consistent instead of each caller having to
+  // remember. Nothing else calls `aquaLinkSetExperiment`, so without this the envelope id is
+  // always empty and every publish goes out as `"exp": null`.
+  aquaLinkSetExperiment(id);
 }
 
 static void getActiveExperimentId(char* out, size_t len) {
@@ -885,6 +892,21 @@ void aeratorHandleMqttCommand(const char* payload, size_t length) {
   params["action"] = action;
   if (envelope["target"]["speed_percent"].is<float>()) {
     cmd["speed_percent"] = envelope["target"]["speed_percent"].as<float>();
+  }
+
+  // Carry the experiment id into the envelope the executor reads.
+  //
+  // The executor runs the shared state machine, and that machine sets the active experiment id
+  // from `exp` -- clearing it for any state that is not ACTIVE_EXPERIMENT. This reshape omitted
+  // `exp`, so the executor always saw an empty one and cleared the id that the block above had
+  // just recorded from the command. Every envelope then went out with `"exp": null`, which meant
+  // no telemetry could be attributed to the run that produced it.
+  //
+  // The id arrives here already validated, and the executor is the one place that owns the
+  // state machine, so the fix is to stop discarding it rather than to teach the executor a
+  // second way of working out attribution. The executor reads `payload.experiment_id`.
+  if (exp != nullptr && exp[0] != '\0') {
+    params["experiment_id"] = exp;
   }
 
   String body;
